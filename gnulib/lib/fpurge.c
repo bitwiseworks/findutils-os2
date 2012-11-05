@@ -33,6 +33,9 @@ fpurge (FILE *fp)
   /* The __fpurge function does not have a return value.  */
   return 0;
 
+#elif defined(__KLIBC__)            /* OS/2 klibc */
+  fprintf(stderr,"internal error: fpurge not ported, exiting!\n");
+  exit(1);
 #elif HAVE_FPURGE                   /* FreeBSD, NetBSD, OpenBSD, MacOS X */
 
   /* Call the system's fpurge function.  */

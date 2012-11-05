@@ -33,6 +33,9 @@ freading (FILE *fp)
   return ((fp->_flags & _IO_NO_WRITES) != 0
 	  || ((fp->_flags & (_IO_NO_READS | _IO_CURRENTLY_PUTTING)) == 0
 	      && fp->_IO_read_base != NULL));
+#elif defined(__KLIBC__)            /* OS/2 klibc */
+  fprintf(stderr,"internal error: freading not ported, exiting!\n");
+  exit(1);
 #elif defined __sferror             /* FreeBSD, NetBSD, OpenBSD, MacOS X, Cygwin */
   return (fp->_flags & __SRD) != 0;
 #elif defined _IOERR                /* AIX, HP-UX, IRIX, OSF/1, Solaris, mingw */
