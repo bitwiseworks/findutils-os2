@@ -465,6 +465,7 @@ main (int argc, char **argv)
        * specifies that it shall be at least LINE_MAX.
        */
 #ifdef _SC_ARG_MAX  
+#ifndef __KLIBC__ // sysconf(_SC_ARG_MAX)=4096 is too low...
       long val = sysconf(_SC_ARG_MAX);
       if (val > 0)
 	{
@@ -474,6 +475,7 @@ main (int argc, char **argv)
 	  assert (bc_ctl.arg_max <= (val-XARGS_POSIX_HEADROOM));
 	}
       else
+#endif // __KLIBC__
 	{
 # if defined ARG_MAX
 	  assert (bc_ctl.arg_max <= (ARG_MAX-XARGS_POSIX_HEADROOM));

@@ -27,8 +27,9 @@ freadahead (FILE *fp)
     return 0;
   return fp->_IO_read_end - fp->_IO_read_ptr;
 #elif defined(__KLIBC__)            /* OS/2 klibc */
-  fprintf(stderr,"internal error: freadahead not ported, exiting!\n");
-  exit(1);
+  //fprintf(stderr,"internal error: freadahead not ported, exiting!\n");
+  //exit(1);
+  return 0;
 #elif defined __sferror             /* FreeBSD, NetBSD, OpenBSD, MacOS X, Cygwin */
   if ((fp->_flags & __SWR) != 0 || fp->_r < 0)
     return 0;

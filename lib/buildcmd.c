@@ -391,6 +391,7 @@ bc_get_arg_max(void)
   /* XXX: better to do a compile-time check */
   assert ( (~(size_t)0) >= LONG_MAX);
 
+#ifndef __KLIBC__ // sysconf(_SC_ARG_MAX)=4096 is too low...
 #ifdef _SC_ARG_MAX  
   val = sysconf(_SC_ARG_MAX);
 #else
@@ -399,6 +400,7 @@ bc_get_arg_max(void)
 
   if (val > 0)
     return val;
+#endif
 
   /* either _SC_ARG_MAX was not available or 
    * there is no particular limit.
