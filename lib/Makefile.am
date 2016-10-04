@@ -48,7 +48,7 @@ clean-local: coverage-clean
 
 EXTRA_DIST += waitpid.c forcefindlib.c
 TESTS_ENVIRONMENT = REGEXPROPS=regexprops$(EXEEXT)
-libfind_a_LIBADD = $(FINDLIBOBJS)
+#libfind_a_LIBADD = $(FINDLIBOBJS)
 libfind_a_DEPENDENCIES = $(FINDLIBOBJS)
 
 check-regexprops: check-regexprops.sh
