@@ -149,7 +149,7 @@ select_shell() {
 : ${FINDOPTIONS=}
 
 # What shell shoud we use?  We should use a POSIX-ish sh.
-: ${SHELL="/bin/sh"}
+: ${SHELL="/@unixroot/usr/bin/sh"}
 
 # Non-network directories to put in the database.
 : ${SEARCHPATHS="/"}
@@ -186,10 +186,10 @@ test -z "$PRUNEREGEX" &&
 : ${LOCATE_DB=@LOCATE_DB@}
 
 # Directory to hold intermediate files.
-if test -d /var/tmp; then
-  : ${TMPDIR=/var/tmp}
-elif test -d /usr/tmp; then
-  : ${TMPDIR=/usr/tmp}
+if test -d /@unixroot/var/tmp; then
+  : ${TMPDIR=/@unixroot/var/tmp}
+elif test -d /@unixroot/usr/tmp; then
+  : ${TMPDIR=/@unixroot/usr/tmp}
 else
   : ${TMPDIR=/tmp}
 fi
