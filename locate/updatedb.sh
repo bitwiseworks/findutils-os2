@@ -240,7 +240,7 @@ make_tempdir () {
 }
 
 checkbinary () {
-    if test -x "$1" ; then
+    if test -x "$1" || test -x "$1.exe"; then
 	: ok
     else
       eval echo "updatedb needs to be able to execute $1, but cannot." >&2
