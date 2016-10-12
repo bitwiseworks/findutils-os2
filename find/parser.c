@@ -2846,7 +2846,11 @@ stream_is_tty (FILE *fp)
 static void
 check_path_safety (const char *action)
 {
+#ifdef __OS2__
+  const char *path = NULL; //on os2 the path is assumed right
+#else
   const char *path = getenv ("PATH");
+#endif
   const char *path_separators = ":";
   size_t pos, len;
 
