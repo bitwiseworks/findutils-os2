@@ -1550,7 +1550,11 @@ dolocate (int argc, char **argv, int secure_db_fd)
   size_t path_element_pos, path_element_len;
   const char *user_selected_locate_path;
   const char *db_name;
+#ifdef __OS2__
+  const char *path_separators = ";";
+#else
   const char *path_separators = ":";
+#endif
   unsigned long int found = 0uL;
   int ignore_case = 0;
   int print = 0;
