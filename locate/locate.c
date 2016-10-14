@@ -865,7 +865,9 @@ print_stats (int argc, size_t database_file_size, const struct timespec* databas
           printf (_("Database was last modified at %s.%09ld"),
                   whenbuf, (long int) database_mtime->tv_nsec);
           printed = strftime (whenbuf, TIME_BUF_LEN, "%z", ptm);
+#ifndef __OS2__ // our libc lacks %z atm, so don't assert
           assert (printed == 5);
+#endif
           printf(" %s\n", whenbuf);
         }
     }
