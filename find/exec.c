@@ -1,7 +1,5 @@
 /* exec.c -- Implementation of -exec, -execdir, -ok, -okdir.
-   Copyright (C) 1990, 1991, 1992, 1993, 1994, 2000, 2003,
-                 2004, 2005, 2006, 2007, 2008, 2009,
-                 2010 Free Software Foundation, Inc.
+   Copyright (C) 1990-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -14,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* config.h must be included first. */
@@ -32,27 +30,15 @@
 #include "cloexec.h"
 #include "dirname.h"
 #include "error.h"
-#include "gettext.h"
 #include "save-cwd.h"
 #include "xalloc.h"
 
 /* findutils headers */
 #include "buildcmd.h"
 #include "defs.h"
+#include "die.h"
 #include "fdleak.h"
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* See locate.c for explanation as to why not use (String) */
-# define N_(String) String
-#endif
+#include "system.h"
 
 
 /* Initialize exec->wd_for_exec.
@@ -120,7 +106,7 @@ impl_pred_exec (const char *pathname,
   const char *target;
   bool result;
   const bool local = is_exec_in_local_dir (pred_ptr->pred_func);
-  char *prefix;
+  const char *prefix;
   size_t pfxlen;
 
   (void) stat_buf;
@@ -132,9 +118,9 @@ impl_pred_exec (const char *pathname,
       */
       if (!record_exec_dir (execp))
         {
-          error (EXIT_FAILURE, errno,
-                 _("Failed to save working directory in order to "
-                   "run a command on %s"),
+          die (EXIT_FAILURE, errno,
+               _("Failed to save working directory in order to "
+                 "run a command on %s"),
                  safely_quote_err_filename (0, pathname));
           /*NOTREACHED*/
         }
@@ -298,6 +284,9 @@ launch (struct buildcmd_control *ctl, void *usercontext, int argc, char **argv)
   static int first_time = 1;
   struct exec_val *execp = usercontext;
 
+  (void) ctl;			/* silence compiler warning */
+  (void) argc;			/* silence compiler warning */
+
   /* Make sure output of command doesn't get mixed with find output. */
   fflush (stdout);
   fflush (stderr);
@@ -311,7 +300,7 @@ launch (struct buildcmd_control *ctl, void *usercontext, int argc, char **argv)
 
   child_pid = fork ();
   if (child_pid == -1)
-    error (EXIT_FAILURE, errno, _("cannot fork"));
+    die (EXIT_FAILURE, errno, _("cannot fork"));
   if (child_pid == 0)
     {
       /* We are the child. */

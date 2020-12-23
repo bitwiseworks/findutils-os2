@@ -1,26 +1,59 @@
+# -*- autoconf -*-
+# Process this file with autoconf to produce a configure script.
+
+# Copyright (C) 1996-2019 Free Software Foundation, Inc.
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+dnl Written by James Youngman.
+
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT([GNU findutils], 4.6.0, [bug-findutils@gnu.org])
+# Make inter-release version strings look like, e.g., v4.6-131-gda920ee, which
+# indicates that it is built from the 131st delta (in _some_ repository)
+# following the v4.6 tag, and that da920ee is a prefix of the commit SHA1.
+AC_INIT([GNU findutils],
+        m4_esyscmd([build-aux/git-version-gen .tarball-version]),
+        [bug-findutils@gnu.org])
+
+dnl Set the bug-report URL
+dnl
+dnl The call to AC_INIT causes AC_PACKAGE_BUGREPORT to be defined
+dnl and we've used an email address.  However, we would also like to
+dnl specify at URL at which to report bugs (and in fact we prefer
+dnl people to use that).  Se we define that here, too.
+bugreport_url='https://savannah.gnu.org/bugs/?group=findutils'
+dnl Ensure that PACKAGE_BUGREPORT_URL shows up n config.h so that
+dnl it can be picked up by bugreport.c.
+AC_DEFINE_UNQUOTED([PACKAGE_BUGREPORT_URL], ["$bugreport_url"],
+                   [URL at which bugs should be reported])
+dnl Also ensure that it is substituted in output files so that it
+dnl turns up in locate/Makefile so that we can generate the correct
+dnl content in the updatedb script.
+AC_SUBST([PACKAGE_BUGREPORT_URL],[$bugreport_url])
+
 AC_CONFIG_AUX_DIR(build-aux)
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([no-dist-gzip dist-xz color-tests])
+AM_SILENT_RULES([yes]) # make --enable-silent-rules the default.
 
 AC_CONFIG_SRCDIR([find/pred.c])
 AC_CONFIG_HEADERS([config.h])
 AC_CANONICAL_HOST
 AC_CONFIG_MACRO_DIR(gl/m4)
 
-dnl Set of available languages.
-ALL_LINGUAS="be bg cs ca da de el eo es et fi fr ga gl hr hu id it ja ko lg lt ms nb nl pl pt pt_BR ro ru rw sk sl sr sv tr uk vi zh_CN zh_TW"
-
 AC_SUBST(AUXDIR,$ac_aux_dir)
 dnl check for --with-fts
 FIND_WITH_FTS
-
-AC_ARG_ENABLE(id-cache,
-[  --enable-id-cache       This currently has no effect.],)
-
-AC_ARG_ENABLE(debug,
-	AS_HELP_STRING(--enable-debug,Enable debugging output which is likely to be interesting to people debugging findutils),
-	[ac_cv_debug=$enableval],[ac_cv_debug=no])
 
 AC_ARG_ENABLE(leaf-optimisation,
 	AS_HELP_STRING(--enable-leaf-optimisation,Enable an optimisation which saves lstat calls to identify subdirectories on filesystems having traditional Unix semantics),
@@ -37,15 +70,6 @@ AC_ARG_ENABLE(d_type-optimisation,
 	AS_HELP_STRING(--enable-d_type-optimisation,Synonym for --enable-d_type-optimization),
 	[ac_cv_d_type=$enableval],[])
 
-
-AC_MSG_CHECKING([whether debug output should be produced])
-if test x$ac_cv_debug = xno; then
-   AC_MSG_RESULT([no])
-else
-   AC_MSG_RESULT([yes])
-   AC_DEFINE([DEBUG], 1, [Define if you want to see find's innards])
-   AC_DEFINE([DEBUG_STAT], 1, [Define if you want to see a message every time find calls the stat() system call])
-fi
 
 AC_MSG_CHECKING([for leaf optimisation])
 if test x$ac_cv_leaf_optimisation = xno; then
@@ -81,38 +105,80 @@ AC_SYS_LARGEFILE
 
 gl_INIT
 
-dnl Enable various GCC warnings.
-gl_MANYWARN_ALL_GCC([warnings])
-# Set up the list of the pointless, undesired warnings.
-nw=
-nw="$nw -Wsystem-headers"       # Don't let system headers trigger warnings
-nw="$nw -Wundef"                # All compiler preprocessors support #if UNDEF
-nw="$nw -Wtraditional"          # All compilers nowadays support ANSI C
-nw="$nw -Wconversion"           # These warnings usually don't point to mistakes.
-nw="$nw -Wsign-conversion"      # Likewise.
-nw="$nw -Wc++-compat"           # malloc returns void* and a cast would be ugly.
-# Warnings we might enable in the future, but not yet (because they generate a
-# lot of noise).
-marginal=""
-marginal="$marginal -Wtraditional-conversion"
-marginal="$marginal -Wpadded"
-marginal="$marginal -Wformat-nonliteral"
-marginal="$marginal -Wunreachable-code"
-marginal="$marginal -Wunused-parameter"
-excluded_warnings="$nw $marginal"
-
-# Enable all GCC warnings not in this list.
-gl_MANYWARN_COMPLEMENT([warnings], [$warnings], [$excluded_warnings])
-
 AC_ARG_ENABLE(compiler-warnings,
   AS_HELP_STRING(--enable-compiler-warnings,Enable many compiler warnings),
   [
-    for w in $warnings
-    do
-      gl_WARN_ADD([$w])
-    done
-  ]
-  )
+  dnl Enable various GCC warnings.
+  gl_MANYWARN_ALL_GCC([warnings])
+
+  # Ensure VLAs are not used.
+  # Note -Wvla is implicitly added by gl_MANYWARN_ALL_GCC
+  AC_DEFINE([GNULIB_NO_VLA], [1], [Define to 1 to disable use of VLAs])
+
+  # Set up the list of the pointless, undesired warnings.
+  findutils_nw=
+  findutils_nw="$findutils_nw -Wsystem-headers"	 # Don't let system headers trigger warnings
+  findutils_nw="$findutils_nw -Wundef"           # All compiler preprocessors support #if UNDEF
+  findutils_nw="$findutils_nw -Wtraditional"     # All compilers nowadays support ANSI C
+  findutils_nw="$findutils_nw -Wconversion"      # These warnings usually don't point to mistakes.
+  findutils_nw="$findutils_nw -Wsign-conversion" # Likewise.
+  findutils_nw="$findutils_nw -Wc++-compat"      # malloc returns void* and a cast would be ugly.
+  findutils_nw="$findutils_nw -Wswitch-default"  # A switch on an enum value needs no default.
+
+  # Warnings we might enable in the future, but not yet (because they generate a
+  # lot of noise).
+  findutils_marginal=""
+  findutils_marginal="$findutils_marginal -Wtraditional-conversion"
+  findutils_marginal="$findutils_marginal -Wpadded"
+  findutils_marginal="$findutils_marginal -Wformat-nonliteral"
+  findutils_marginal="$findutils_marginal -Wunreachable-code"
+  # -Wdouble-promotion generates many warnings when printing values with fprintf.
+  findutils_marginal="$findutils_marginal -Wdouble-promotion"
+  findutils_marginal="$findutils_marginal -Woverlength-strings"
+  # Also disable some other warnings that we do in principle want, but currently lack
+  # a way to portably avoid.
+  findutils_tmp_nowarning=
+  findutils_tmp_nowarning="$findutils_tmp_nowarning -Wsuggest-attribute=const"
+  findutils_tmp_nowarning="$findutils_tmp_nowarning -Wsuggest-attribute=pure"
+  findutils_tmp_nowarning="$findutils_tmp_nowarning -Wsuggest-attribute=format"
+  # And some other warnings that we should fix but haven't, yet.
+  findutils_tmp_nowarning="$findutils_tmp_nowarning -Wsuggest-attribute=const"
+
+  # Enable all GCC warnings not in our list of excluded warnings.
+  gl_MANYWARN_COMPLEMENT(
+	[warnings], [$warnings],
+	[$findutils_nw $findutils_marginal $findutils_tmp_nowarning])
+  for w in $warnings
+  do
+    gl_WARN_ADD([$w])
+  done
+  # -Wextra implies -Wsign-compare, so removing -Wsign-compare from $warnings does not
+  # actually eliminate this warning, as manywarnings will have included -Wextra.
+  # We should actually eliminate the uses that cause this warning, but some of them are
+  # tricky as they're comparisons between a type we choose and a type the implementation
+  # chooses without stating whether or not it is signed (e.g. time_t).
+  WARN_CFLAGS="$WARN_CFLAGS  -Wno-sign-compare"
+  # Likewise for -Wunused-parameter: it is implied by -Wunused and -Wextra.
+  gl_WARN_ADD([-Wno-unused-parameter])
+  ])
+
+dnl For --enable-compiler-warnings-are-errors, any GCC compiler
+dnl warning is actually an error which results in a non-zero result
+dnl from the compiler (that is, the code will fail to compile).  We do
+dnl this late in the configure script so that it doesn't interfere
+dnl with the compilation tests run by other parts of the configure
+dnl script.
+AC_ARG_ENABLE(compiler-warnings-are-errors,
+  AS_HELP_STRING(--enable-compiler-warnings-are-errors,Compiler warnings are errors),
+  [
+    AC_MSG_CHECKING([whether it is safe to use -Werror])
+    if test -n "$GCC"; then
+      CFLAGS="$CFLAGS -Werror"
+      AC_MSG_RESULT([yes])
+    else
+      AC_MSG_RESULT([no, because $CC is not GCC])
+    fi
+  ])
 
 dnl Older versions of gl/m4/nls.m4 provide AM_MKINSTALLDIRS.
 dnl The current version of gnulib does not, but the version of
@@ -186,11 +252,6 @@ AC_CHECK_FUNCS(getmntent)
 AC_CHECK_FUNCS(setmntent endmntent)
 
 
-dnl Checks for library functions that are provided by findlib.
-FINDLIB_REPLACE_FUNCS(waitpid strspn)
-FINDLIB_REPLACE_FUNCS(forcefindlib)
-
-
 # Check for common but not-POSIX functions.
 AC_CHECK_FUNCS(setgroups)
 
@@ -204,7 +265,7 @@ dnl #11710) (Sun Sep  4 20:15:11 2005: gl_INCLUDED_REGEX no longer seems
 dnl to be available in gnulib CVS)
 gl_REGEX
 
-AC_PREREQ(2.59)
+AC_PREREQ([2.69])
 
 jy_SORTZ
 
@@ -253,7 +314,7 @@ locate/testsuite/Makefile
 m4/Makefile
 po/Makefile.in
 po/Makefile
-tests/Makefile
+gnulib-tests/Makefile
 xargs/Makefile
 xargs/testsuite/Makefile
 ])

@@ -1,5 +1,5 @@
 /* word_io.c -- word oriented I/O
-   Copyright (C) 2007, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2007-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,14 +12,13 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* config.h must be included first. */
 #include <config.h>
 
 /* system headers. */
-#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>		/* for bool */
 #include <stdio.h>
@@ -29,32 +28,12 @@
 /* gnulib headers. */
 #include "byteswap.h"
 #include "error.h"
-#include "gettext.h"
 #include "quotearg.h"
 
 /* find headers. */
+#include "system.h"
+#include "die.h"
 #include "locatedb.h"
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#define textdomain(Domain)
-#define bindtextdomain(Package, Directory)
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* We used to use (String) instead of just String, but apparently ISO C
- * doesn't allow this (at least, that's what HP said when someone reported
- * this as a compiler bug).  This is HP case number 1205608192.  See
- * also http://gcc.gnu.org/bugzilla/show_bug.cgi?id=11250 (which references
- * ANSI 3.5.7p14-15).  The Intel icc compiler also rejects constructs
- * like: static const char buf[] = ("string");
- */
-# define N_(String) String
-#endif
 
 
 enum { WORDBYTES=4 };
@@ -83,7 +62,7 @@ decode_value (const unsigned char data[],
 	    {
 	      /* the native value is inside the limit and the
 	       * swapped value is not.  We take this as proof
-	       * that we should be using the ative byte order.
+	       * that we should be using the native byte order.
 	       */
 	      *endian_state_flag = GetwordEndianStateNative;
 	    }
@@ -125,7 +104,6 @@ decode_value (const unsigned char data[],
 int
 getword (FILE *fp,
 	 const char *filename,
-	 size_t minvalue,
 	 size_t maxvalue,
 	 GetwordEndianState *endian_state_flag)
 {
@@ -142,37 +120,14 @@ getword (FILE *fp,
        * Either condition is fatal.
        */
       if (feof (fp))
-	error (EXIT_FAILURE, 0, _("unexpected EOF in %s"), quoted_name);
+	die (EXIT_FAILURE, 0, _("unexpected EOF in %s"), quoted_name);
       else
-	error (EXIT_FAILURE, errno,
-	       _("error reading a word from %s"), quoted_name);
+	die (EXIT_FAILURE, errno,
+	     _("error reading a word from %s"), quoted_name);
       abort ();
     }
   else
     {
       return decode_value (data, maxvalue, endian_state_flag, filename);
     }
-}
-
-
-bool
-putword (FILE *fp, int word,
-	 GetwordEndianState endian_state_flag)
-{
-  size_t items_written;
-
-  /* You must decide before calling this function which
-   * endianness you want to use.
-   */
-  assert (endian_state_flag != GetwordEndianStateInitial);
-  if (GetwordEndianStateSwab == endian_state_flag)
-    {
-      word = bswap_32(word);
-    }
-
-  items_written = fwrite (&word, sizeof (word), 1, fp);
-  if (1 == items_written)
-    return true;
-  else
-    return false;
 }

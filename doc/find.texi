@@ -31,8 +31,7 @@
 This file documents the GNU utilities for finding files that match
 certain criteria and performing various operations on them.
 
-Copyright @copyright{} 1994, 1996, 1998, 2000, 2001, 2003-2015 Free
-Software Foundation, Inc.
+Copyright @copyright{} 1994-2019 Free Software Foundation, Inc.
 
 Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -108,7 +107,7 @@ fixes, small improvements, and helpful suggestions.  Thanks!
 
 To report a bug in GNU findutils, please use the form on the Savannah
 web site at
-@code{http://savannah.gnu.org/bugs/?group=findutils}.  Reporting bugs
+@code{https://savannah.gnu.org/bugs/?group=findutils}.  Reporting bugs
 this way means that you will then be able to track progress in fixing
 the problem.
 
@@ -240,7 +239,7 @@ find @r{[}@var{file}@dots{}@r{]} @r{[}@var{expression}@r{]}
 @noindent
 Here is a typical use of @code{find}.  This example prints the names
 of all files in the directory tree rooted in @file{/usr/src} whose
-name ends with @samp{.c} and that are larger than 100 Kilobytes.
+name ends with @samp{.c} and that are larger than 100 KiB.
 @example
 find /usr/src -name '*.c' -size +100k -print
 @end example
@@ -307,10 +306,15 @@ evaluated.
 
 You can omit the operator between two primaries; it defaults to
 @samp{-and}.  @xref{Combining Primaries With Operators}, for ways to
-connect primaries into more complex expressions.  If the expression
-contains no actions other than @samp{-prune}, @samp{-print} is
-performed on all files for which the entire expression is true
-(@pxref{Print File Name}).
+connect primaries into more complex expressions.
+
+The @samp{-print} action is performed on all files for which the
+entire expression is true (@pxref{Print File Name}), unless the
+expression contains an action other than @samp{-prune} or
+@samp{-quit}. Actions which inhibit the default @samp{-print} are
+@samp{-delete}, @samp{-exec}, @samp{-execdir}, @samp{-ok},
+@samp{-okdir}, @samp{-fls}, @samp{-fprint}, @samp{-fprintf},
+@samp{-ls}, @samp{-print} and @samp{-printf}.
 
 Options take effect immediately, rather than being evaluated for each
 file when their place in the expression is reached.  Therefore, for
@@ -842,7 +846,7 @@ File has fewer than @var{n} hard links.
 @node Time
 @section Time
 
-Each file has three time stamps, which record the last time that
+Each file has three timestamps, which record the last time that
 certain operations were performed on the file:
 
 @enumerate
@@ -862,8 +866,8 @@ However, even on systems which support file birth time, files may
 exist for which this information was not recorded (for example, UFS1
 file systems simply do not contain this information).
 
-You can search for files whose time stamps are within a certain age
-range, or compare them to other time stamps.
+You can search for files whose timestamps are within a certain age
+range, or compare them to other timestamps.
 
 @menu
 * Age Ranges::
@@ -980,14 +984,22 @@ find /usr -newer /tmp/stamp$$
 rm -f /tmp/stamp$$
 @end example
 
-@deffn Test -anewer file
-@deffnx Test -cnewer file
-@deffnx Test -newer file
-True if the file was last accessed (or its status changed, or it was
-modified) more recently than @var{file} was modified.  These tests are
-affected by @samp{-follow} only if @samp{-follow} comes before them on
-the command line.  @xref{Symbolic Links}, for more information on
-@samp{-follow}.  As an example, to list any files modified since
+@deffn Test -anewer reference
+@deffnx Test -cnewer reference
+@deffnx Test -newer reference
+True if the time of the last access (or status change or data modification)
+of the current file is more recent than that of the last data modification
+of the @var{reference} file.
+
+If @var{reference} is a symbolic link and the @samp{-H} option or the @samp{-L}
+option is in effect, then the time of the last data modification of the file
+it points to is always used.
+
+These tests are affected by @samp{-follow} only if @samp{-follow} comes before
+them on the command line.  @xref{Symbolic Links}, for more information on
+@samp{-follow}.
+
+As an example, to list any files modified since
 @file{/bin/sh} was last modified:
 
 @example
@@ -1014,14 +1026,14 @@ one-character suffix to @var{n}:
 512-byte blocks (never 1024)
 @item c
 bytes
-@item k
-kilobytes (1024 bytes)
 @item w
 2-byte words
+@item k
+Kibibytes (KiB, units of 1024 bytes)
 @item M
-Megabytes (units of 1048576 bytes)
+Mebibytes (MiB, units of 1024 * 1024 = 1048576 bytes)
 @item G
-Gigabytes (units of 1073741824 bytes)
+Gibibytes (GiB, units of 1024 * 1024 * 1024 = 1073741824 bytes)
 @end table
 
 The `b' suffix always considers blocks to be 512 bytes.  This is not
@@ -1034,12 +1046,16 @@ The number can be prefixed with a `+' or a `-'.  A plus sign indicates
 that the test should succeed if the file uses at least @var{n} units
 of storage (a common use of this test) and a minus sign
 indicates that the test should succeed if the file uses less than
-@var{n} units of storage.  There is no `=' prefix, because that's the
-default anyway.
+@var{n} units of storage; i.e., an exact size of @var{n} units does not match.
+Bear in mind that the size is rounded up to
+the next unit. Therefore @samp{-size -1M} is not equivalent to
+@samp{-size -1048576c}. The former only matches empty files, the latter
+matches files from 0 to 1,048,575 bytes.  There is no `=' prefix, because
+that's the default anyway.
 
-The size does not count indirect blocks, but it does count blocks in
-sparse files that are not actually allocated.  In other words, it's
-consistent with the result you get for @samp{ls -l} or @samp{wc -c}.
+The size is simply the st_size member of the struct stat populated by
+the lstat (or stat) system call, rounded up as shown above.  In other words, it's
+consistent with the result you get for @samp{ls -l}.
 This handling of sparse files differs from the output of the @samp{%k}
 and @samp{%b} format specifiers for the @samp{-printf} predicate.
 
@@ -1078,6 +1094,10 @@ socket
 @item D
 door (Solaris)
 @end table
+
+As a GNU extension, multiple file types can be provided as a combined list
+separated by comma @samp{,}. For example, @samp{-type f,d,l} is logically
+interpreted as @samp{( -type f -o -type d -o -type l )}.
 @end deffn
 
 @deffn Test -xtype c
@@ -1232,9 +1252,9 @@ Match files that are writable by somebody (their owner, or
 their group, or anybody else).
 
 @item -perm /022
-Match files that are writable by either their owner or their
-group.  The files don't have to be writable by both the owner and
-group to be matched; either will do.
+Match files that are writable by their group or everyone else - the latter
+often called @dfn{other}.  The files don't have to be writable by both the
+group and other to be matched; either will do.
 
 @item -perm /g+w,o+w
 As above.
@@ -1243,21 +1263,20 @@ As above.
 As above.
 
 @item -perm -022
-Match files that are writable by both their owner and their
-group.
+Match files that are writable by both their group and everyone else.
+
+@item -perm -g+w,o+w
+As above.
 
 @item -perm -444 -perm /222 ! -perm /111
 Match files that are readable for everybody, have at least one
 write bit set (i.e., somebody can write to them), but that cannot be
 executed/searched by anybody.  Note that in some shells the @samp{!} must be
-escaped;.
+escaped.
 
 @item -perm -a+r -perm /a+w ! -perm /a+x
 As above.
 
-
-@item -perm -g+w,o+w
-As above.
 @end table
 
 @quotation Warning
@@ -1418,7 +1437,15 @@ gives a significant increase in search speed.
 If a file disappears after its name has been read from a directory but
 before @code{find} gets around to examining the file with @code{stat},
 don't issue an error message.  If you don't specify this option, an
-error message will be issued.  This option can be useful in system
+error message will be issued.
+
+Furthermore, @code{find} with the @samp{-ignore_readdir_race} option
+will ignore errors of the @samp{-delete} action in the case the file
+has disappeared since the parent directory was read: it will not output
+an error diagnostic, and the return code of the @samp{-delete} action
+will be true.
+
+This option can be useful in system
 scripts (cron scripts, for example) that examine areas of the
 filesystem that change frequently (mail queues, temporary directories,
 and so forth), because this scenario is common for those sorts of
@@ -1912,6 +1939,9 @@ link, @samp{l} will be printed.
 Type of the file as used with @samp{-type}.  If the file is a symbolic
 link, it is dereferenced.  If the file is a broken symbolic link,
 @samp{N} is printed.
+When determining the type of the symlink target, and a loop is encountered,
+then @samp{L} is printed (e.g. for a symlink to itself);
+@samp{?} is printed for any other error (like e.g. @samp{permission denied}).
 
 @end table
 
@@ -2063,9 +2093,10 @@ components.
 @item r
 time, 12-hour (hh:mm:ss [AP]M)
 @item T
-time, 24-hour (hh:mm:ss)
+time, 24-hour (hh:mm:ss.xxxxxxxxxx)
 @item X
-locale's time representation (H:M:S)
+locale's time representation (H:M:S).  The seconds field includes a
+fractional part.
 @item c
 locale's date and time in ctime format (Sat Nov 04 12:02:33 EST
 1989).  This format does not include any fractional part in the
@@ -2280,8 +2311,8 @@ find $HOME -name '*.c' -print | xargs grep -l sprintf
 
 However, if the command needs to have its standard input be a terminal
 (@code{less}, for example), you have to use the shell command
-substitution method or use the @samp{--arg-file} option of
-@code{xargs}.
+substitution method or use either the @samp{--arg-file} option or the
+@samp{--open-tty} option of @code{xargs}.
 
 The @code{xargs} command will process all its input, building command
 lines and executing them, unless one of the commands exits with a
@@ -2385,7 +2416,8 @@ As of findutils version 4.2.4, the @code{locate} program also has a
 
 If you want to be able to handle file names safely but need to run
 commands which want to be connected to a terminal on their input, you
-can use the @samp{--arg-file} option to @code{xargs} like this:
+can use the @samp{--open-tty} option to @code{xargs} or the
+@samp{--arg-file} option to @code{xargs} like this:
 
 @example
 find / -name xyzzy -print0 > list
@@ -2557,7 +2589,7 @@ work that it takes significant time to run, even on a single image.
 You could run:
 
 @example
-find originals -name '*.jpg' | xargs -1 makeallsizes
+find originals -name '*.jpg' | xargs -l makeallsizes
 @end example
 
 This will run @code{makeallsizes @var{filename}} once for each @code{.jpg}
@@ -2566,7 +2598,7 @@ two central processors, this script will only keep one of them busy.
 Instead, you could probably finish in about half the time by running:
 
 @example
-find originals -name '*.jpg' | xargs -1 -P 2 makeallsizes
+find originals -name '*.jpg' | xargs -l -P 2 makeallsizes
 @end example
 
 @code{xargs} will run the first two commands in parallel, and then
@@ -2581,7 +2613,7 @@ overall latency by overlapping their waiting time.
 
 If you are running commands in parallel, you need to think about how
 they should arbitrate access to any resources that they share.  For
-example, if more than one of them tries to print to stdout, the ouptut
+example, if more than one of them tries to print to stdout, the output
 will be produced in an indeterminate order (and very likely mixed up)
 unless the processes collaborate in some way to prevent this.  Using
 some kind of locking scheme is one way to prevent such problems.  In
@@ -2607,7 +2639,7 @@ If you send it the signal @code{SIGUSR1}, it will run one more command
 in parallel.  For example:
 
 @example
-shell$ xargs <allimages -1 -P 4 makeallsizes &
+shell$ xargs <allimages -l -P 4 makeallsizes &
 [4] 27643
    ... at some later point ...
 shell$ kill -USR2 27643
@@ -2779,6 +2811,11 @@ explicitly.
 
 If @samp{-delete} fails, @code{find}'s exit status will be nonzero
 (when it eventually exits).
+
+Together with the @samp{-ignore_readdir_race} option, @code{find} will
+ignore errors of the @samp{-delete} action in the case the file has disappeared
+since the parent directory was read: it will not output an error diagnostic, and
+the return code of the @samp{-delete} action will be true.
 @end deffn
 
 @node Adding Tests
@@ -2908,18 +2945,17 @@ directory trees when the databases were last updated.  The file name
 database format changed starting with GNU @code{locate} version 4.0 to
 allow machines with different byte orderings to share the databases.
 
-GNU @code{locate} can read both the old and new database formats.
-However, old versions of @code{locate} (on other Unix systems, or GNU
-@code{locate} before version 4.0) produce incorrect results if run
-against a database in something other than the old format.
-
-Support for the old database format will eventually be discontinued,
-first in @code{updatedb} and later in @code{locate}.
+GNU @code{locate} can read both the old pre-findutils-4.0 database
+format and the @samp{LOCATE02} database format.  Support for the old
+database format will shortly be removed from @code{locate}.  It has
+already been removed from @code{updatedb}.
 
 If you run @samp{locate --statistics}, the resulting summary indicates
 the type of each @code{locate} database.   You select which database
 format @code{updatedb} will use with the @samp{--dbformat} option.
 
+The @samp{slocate} database format is very similar to @samp{LOCATE02}
+and is also supported (in both @code{updatedb} and @code{locate}).
 
 @menu
 * LOCATE02 Database Format::
@@ -3020,21 +3056,20 @@ interpreted as for the GNU LOCATE02 format.
 @subsection Old Database Format
 
 The old database format is used by Unix @code{locate} and @code{find}
-programs and earlier releases of the GNU ones.  @code{updatedb}
-produces this format if given the @samp{--old-format} option.
+programs and pre-4.0 releases of GNU findutils.  @code{locate}
+understands this format, though @code{updatedb} will no longer produce
+it.
 
-@code{updatedb} runs programs called @code{bigram} and @code{code} to
-produce old-format databases.  The old format differs from the new one
-in the following ways.  Instead of each entry starting with an
-offset-differential count byte and ending with a null, byte values
-from 0 through 28 indicate offset-differential counts from -14 through
-14.  The byte value indicating that a long offset-differential count
-follows is 0x1e (30), not 0x80.  The long counts are stored in host
-byte order, which is not necessarily network byte order, and host
-integer word size, which is usually 4 bytes.  They also represent a
-count 14 less than their value.  The database lines have no
-termination byte; the start of the next line is indicated by its first
-byte having a value <= 30.
+The old format differs from @samp{LOCATE02} in the following ways.
+Instead of each entry starting with an offset-differential count byte
+and ending with a null, byte values from 0 through 28 indicate
+offset-differential counts from -14 through 14.  The byte value
+indicating that a long offset-differential count follows is 0x1e (30),
+not 0x80.  The long counts are stored in host byte order, which is not
+necessarily network byte order, and host integer word size, which is
+usually 4 bytes.  They also represent a count 14 less than their
+value.  The database lines have no termination byte; the start of the
+next line is indicated by its first byte having a value <= 30.
 
 In addition, instead of starting with a dummy entry, the old database
 format starts with a 256 byte table containing the 128 most common
@@ -3045,17 +3080,13 @@ offset-differential count coding makes these databases 20-25% smaller
 than the new format, but makes them not 8-bit clean.  Any byte in a
 file name that is in the ranges used for the special codes is replaced
 in the database by a question mark, which not coincidentally is the
-shell wildcard to match a single character.
+shell wildcard to match a single character. The old format therefore
+cannot faithfully store entries with non-ASCII characters.
 
-The old format therefore cannot faithfully store entries with
-non-ASCII characters. It therefore should not be used in
-internationalised environments.  That is, most installations should
-not use it.
-
-Because the long counts are stored by the @code{code} program as
+Because the long counts are stored as
 native-order machine words, the database format is not easily used in
 environments which differ in terms of byte order.  If locate databases
-are to be shared between machines, the LOCATE02 database format should
+are to be shared between machines, the @samp{LOCATE02} database format should
 be used.  This has other benefits as discussed above.  However, the
 length of the filename currently being processed can normally be used
 to place reasonable limits on the long counts and so this information
@@ -3093,16 +3124,6 @@ command lacks support for this, the list of files is delimited with
 the newline character, meaning that parts of file names containing
 newlines will be incorrectly sorted.  This can result in both
 incorrect matches and incorrect failures to match.
-
-On the other hand, if you are using the old database format, file
-names with embedded newlines are not correctly handled.  There is no
-technical limitation which enforces this, it's just that the
-@code{bigram} program has not been updated to support lists of file
-names separated by nulls.
-
-So, if you are using the new database format (this is the default) and
-your system uses GNU @code{sort}, newlines will be correctly handled
-at all times.  Otherwise, newlines may not be correctly handled.
 
 @node File Permissions
 @chapter File Permissions
@@ -3297,9 +3318,6 @@ above options are triggered by:
 Use of the @samp{-d} option which is deprecated; please use
 @samp{-depth} instead, since the latter is POSIX-compliant.
 @item
-Use of the @samp{-ipath} option which is deprecated; please use
-@samp{-iwholename} instead.
-@item
 Specifying an option (for example @samp{-mindepth}) after a non-option
 (for example @samp{-type} or @samp{-print}) on the command line.
 @item
@@ -3379,10 +3397,10 @@ most people will not find this option helpful.
 The list of debug options should be comma separated.  Compatibility of
 the debug options is not guaranteed between releases of findutils.
 For a complete list of valid debug options, see the output of
-@code{find -D help}.  Valid debug options include:
+@code{find -D help}.
+
+Valid debug options include:
 @table @samp
-@item help
-Explain the debugging options.
 @item tree
 Show the expression tree in its original and optimised form.
 @item stat
@@ -3394,6 +3412,10 @@ expression tree; see the @samp{-O} option.
 @item rates
 Prints a summary indicating how often each predicate succeeded or
 failed.
+@item all
+Enable all of the other debug options (but @samp{help}).
+@item help
+Explain the debugging options.
 @end table
 
 @node Find Expressions
@@ -3627,24 +3649,12 @@ The user to search network directories as, using @code{su}.  Default
 @code{user} is @code{daemon}.  You can also use the environment variable
 @code{NETUSER} to set this user.
 
-@item --old-format
-Generate a @code{locate} database in the old format, for compatibility
-with versions of @code{locate} other than GNU @code{locate}.  Using
-this option means that @code{locate} will not be able to properly
-handle non-ASCII characters in file names (that is, file names
-containing characters which have the eighth bit set, such as many of
-the characters from the ISO-8859-1 character set).  @xref{Database
-Formats}, for a detailed description of the supported database
-formats.
-
 @item --dbformat=@var{FORMAT}
 Generate the locate database in format @code{FORMAT}.  Supported
-database formats include @code{LOCATE02} (which is the default),
-@code{old} and @code{slocate}.  The @code{old} format exists for
-compatibility with implementations of @code{locate} on other Unix
-systems.  The @code{slocate} format exists for compatibility with
-@code{slocate}.  @xref{Database Formats}, for a detailed description
-of each format.
+database formats include @code{LOCATE02} (which is the default) and
+@code{slocate}.  The @code{slocate} format exists for compatibility
+with @code{slocate}. @xref{Database Formats}, for a detailed
+description of each format.
 
 @item --help
 Print a summary of the command line usage and exit.
@@ -3769,6 +3779,17 @@ Use at most @var{max-args} arguments per command line.  Fewer than
 @var{max-args} arguments will be used if the size (see the @samp{-s}
 option) is exceeded, unless the @samp{-x} option is given, in which
 case @code{xargs} will exit.
+
+@item --open-tty
+@itemx -o
+Reopen stdin as @file{/dev/tty} in the child process before executing
+the command, thus allowing that command to be associated to the terminal
+while @code{xargs} reads from a different stream, e.g. from a pipe.
+This is useful if you want @code{xargs} to run an interactive application.
+@example
+grep -lz PATTERN * | xargs -0o vi
+@end example
+
 
 @item --interactive
 @itemx -p
@@ -3901,6 +3922,10 @@ Therefore instead of keeping a @code{sh} process around for no reason,
 we just arrange for the subshell to exec Emacs, saving an extra
 process creation.
 
+Although GNU @code{xargs} and the implementations on some other platforms
+like BSD support the @samp{-o} option to achieve the same, the above is
+the portable way to redirect stdin to @file{/dev/tty}.
+
 Sometimes, though, it can be helpful to keep the shell process around:
 
 @example
@@ -3925,8 +3950,11 @@ your locale setup affects the interpretation of regular expressions.
 
 There are also several different types of regular expression, and
 these are interpreted differently.  Normally, the type of regular
-expression used by @code{find} and @code{locate} is the same as is
-used in GNU Emacs.  Both programs provide an option which allows you
+expression used by @code{find} and @code{locate} is almost identical to
+that used in GNU Emacs.  The single difference is that in @code{find}
+and @code{locate}, a @samp{.} will match a newline character.
+
+Both @code{find} and @code{locate} provide an option which allows you
 to select an alternative regular expression syntax; for @code{find}
 this is the @samp{-regextype} option, and for @code{locate} this is
 the @samp{--regextype} option.
@@ -4073,6 +4101,10 @@ protect the @code{$@@} against expansion by your interactive shell
 (which will normally have no arguments and thus expand @code{$@@} to
 nothing).  The capitalised @samp{Emacs} on the command line is used as
 @code{$0} by the shell that @code{xargs} launches.
+
+Please note that the implementations in GNU @code{xargs} and at least BSD
+support the @samp{-o} option as extension to achieve the same, while the
+above is the portable way to redirect stdin to @file{/dev/tty}.
 
 @node Archiving
 @section Archiving
@@ -4792,7 +4824,7 @@ It is possible to use the @samp{-printf} action to abandon the use of
 @smallexample
 newest=$(find subdir -newer timestamp -printf "%A@:%p\n" |
            sort -n |
-           tail -1 |
+           tail -n1 |
            cut -d: -f2- )
 touch -r "$@{newest:-timestamp@}" timestamp
 @end smallexample
@@ -5173,7 +5205,7 @@ For example, if I run this on my system now, this gives:
 @example
 find (GNU findutils) 4.5.11-git
 Copyright (C) 2012 Free Software Foundation, Inc.
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
 This is free software: you are free to change and redistribute it.
 There is NO WARRANTY, to the extent permitted by law.
 
@@ -5202,7 +5234,7 @@ to move to, issues the @code{chdir()} system call, and then checks
 that it has ended up in the subdirectory it expected.  If all is as
 expected, processing continues as normal.  However, there are two main
 reasons why the directory might change: the use of an automounter and
-the someone removing the old directory and replacing it with something
+someone removing the old directory and replacing it with something
 else while @code{find} is trying to descend into it.
 
 Where a filesystem ``automounter'' is in use it can be the case that
@@ -5373,47 +5405,6 @@ resolved by using @code{locate}'s @samp{-0} option, this still leaves
 the race condition problems associated with @samp{find @dots{} -print0}.
 There is no way to avoid these problems in the case of @code{locate}.
 
-@subsection Long File Name Bugs with Old-Format Databases
-Old versions of @code{locate} have a bug in the way that old-format
-databases are read.  This bug affects the following versions of
-@code{locate}:
-
-@enumerate
-@item All releases prior to 4.2.31
-@item All 4.3.x releases prior to 4.3.7
-@end enumerate
-
-The affected versions of @code{locate} read file names into a
-fixed-length 1026 byte buffer, allocated on the heap.  This buffer is
-not extended if file names are too long to fit into the buffer.  No
-range checking on the length of the filename is performed.  This could
-in theory lead to a privilege escalation attack.  Findutils versions
-4.3.0 to 4.3.6 are also affected.
-
-On systems using the old database format and affected versions of
-@code{locate}, carefully-chosen long file names could in theory allow
-malicious users to run code of their choice as any user invoking
-locate.
-
-If remote users can choose the names of files stored on your system,
-and these files are indexed by @code{updatedb}, this may be a remote
-security vulnerability.  Findutils version 4.2.31 and findutils
-version 4.3.7 include fixes for this problem.  The @code{updatedb},
-@code{bigram} and @code{code} programs do no appear to be affected.
-
-If you are also using GNU coreutils, you can use the following command
-to determine the length of the longest file name on a given system:
-
-@example
-find / -print0 | tr -c '\0' 'x' | tr '\0' '\n' | wc -L
-@end example
-
-Although this problem is significant, the old database format is not
-the default, and use of the old database format is not common.  Most
-installations and most users will not be affected by this problem.
-
-
-
 @node Security Summary
 @section Summary
 
@@ -5449,18 +5440,18 @@ useful articles on the web that touch on the issues described above:
 @c https://www.securecoding.cert.org/confluence/display/seccode/MSC09-C.+Character+Encoding+-+Use+Subset+of+ASCII+for+Safety
 This article describes some of the unfortunate effects of allowing
 free choice of file names.
-@item http://cwe.mitre.org/data/definitions/78.html
+@item https://cwe.mitre.org/data/definitions/78.html
 Describes OS Command Injection
 @item https://cwe.mitre.org/data/definitions/73.html
 Describes problems arising from allowing remote computers to send
 requests which specify file names of their choice
-@item http://cwe.mitre.org/data/definitions/116.html
+@item https://cwe.mitre.org/data/definitions/116.html
 Describes problems relating to encoding file names and escaping
 characters.  This article is relevant to findutils because for command
 lines processed via the shell, the encoding and escaping rules are
 already set by the shell.   For example command lines like @code{find
 ... -print | some-shell-script} require specific care.
-@item http://xkcd.com/327/
+@item https://xkcd.com/327/
 A humorous and pithy summary of the broader problem.
 @end table
 
@@ -5629,6 +5620,11 @@ signals to increase or decrease the parallelism of its processing.
 If you don't plan to send it those signals, this warning can be ignored
 (though if you're a programmer, you may want to help us figure out
 why @code{xargs} is confused by your operating system).
+
+@item failed to redirect standard input of the child process
+@code{xargs} redirects the stdin stream of the command to be run to either
+@file{/dev/null} or to @file{/dev/tty} for the @samp{-o} option.
+See the manual of the system call @code{dup2(2)}.
 @end table
 
 @node Error Messages From locate

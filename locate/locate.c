@@ -1,6 +1,5 @@
 /* locate -- search databases for filenames that match patterns
-   Copyright (C) 1994, 1996, 1998, 1999, 2000, 2003, 2004, 2005, 2006,
-   2007, 2008, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1994-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* Usage: locate [options] pattern...
@@ -68,7 +67,6 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <grp.h>                /* for setgroups() */
-#include <locale.h>
 #include <regex.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -83,7 +81,6 @@
 
 /* gnulib headers. */
 #include "fnmatch.h"
-#include "gettext.h"
 #include "progname.h"
 #include "xalloc.h"
 #include "error.h"
@@ -95,33 +92,15 @@
 #include "stat-time.h"
 
 /* find headers. */
+#include "system.h"
+#include "bugreports.h"
+#include "die.h"
 #include "findutils-version.h"
+#include "gcc-function-attributes.h"
 #include "locatedb.h"
 #include "printquoted.h"
 #include "splitstring.h"
 
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#define textdomain(Domain)
-#define bindtextdomain(Package, Directory)
-#define ngettext(singular,plural,n) ((1==n) ? singular : plural)
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* We used to use (String) instead of just String, but apparently ISO C
- * doesn't allow this (at least, that's what HP said when someone reported
- * this as a compiler bug).  This is HP case number 1205608192.  See
- * also http://gcc.gnu.org/bugzilla/show_bug.cgi?id=11250 (which references
- * ANSI 3.5.7p14-15).  The Intel icc compiler also rejects constructs
- * like: static const char buf[] = ("string");
- */
-# define N_(String) String
-#endif
 
 /* Warn if a database is older than this.  8 days allows for a weekly
    update that takes up to a day to perform.  */
@@ -161,6 +140,7 @@ static bool results_were_filtered;
 
 static const char *selected_secure_db = NULL;
 
+static int dolocate (int argc, char **argv, int secure_db_fd);
 
 /* Change the number of days old the database can be
  * before we complain about it.
@@ -174,8 +154,8 @@ set_max_db_age (const char *s)
 
   if (0 == *s)
     {
-      error (EXIT_FAILURE, 0,
-             _("The argument for option --max-database-age must not be empty"));
+      die (EXIT_FAILURE, 0,
+           _("The argument for option --max-database-age must not be empty"));
     }
 
 
@@ -190,16 +170,16 @@ set_max_db_age (const char *s)
   if ((ULONG_MAX == val && ERANGE == errno) ||
       (0 == val && EINVAL == errno))
     {
-      error (EXIT_FAILURE, errno,
-             _("Invalid argument %s for option --max-database-age"),
-             quotearg_n_style (0, locale_quoting_style, s));
+      die (EXIT_FAILURE, errno,
+           _("Invalid argument %s for option --max-database-age"),
+           quotearg_n_style (0, locale_quoting_style, s));
     }
   else if (*end)
     {
       /* errno wasn't set, don't print its message */
-      error (EXIT_FAILURE, 0,
-             _("Invalid argument %s for option --max-database-age"),
-             quotearg_n_style (0, locale_quoting_style, s));
+      die (EXIT_FAILURE, 0,
+           _("Invalid argument %s for option --max-database-age"),
+           quotearg_n_style (0, locale_quoting_style, s));
     }
   else
     {
@@ -447,10 +427,10 @@ visit_justprint_unquoted (struct process_data *procdata, void *context)
 static void
 toolong (struct process_data *procdata)
 {
-  error (EXIT_FAILURE, 0,
-         _("locate database %s contains a "
-           "filename longer than locate can handle"),
-         procdata->dbfile);
+  die (EXIT_FAILURE, 0,
+       _("locate database %s contains a "
+         "filename longer than locate can handle"),
+       procdata->dbfile);
 }
 
 static void
@@ -492,7 +472,8 @@ visit_old_format (struct process_data *procdata, void *context)
       else
         maxval = (procdata->len - 0);
       word = getword (procdata->fp, procdata->dbfile,
-                      minval, maxval, &procdata->endian_state);
+                      maxval, &procdata->endian_state);
+      assert (word >= minval);
       procdata->count += word;
       assert (procdata->count >= 0);
     }
@@ -558,8 +539,8 @@ visit_locate02_format (struct process_data *procdata, void *context)
        * reading in data which is outside our control, we
        * cannot prevent it.
        */
-      error (EXIT_FAILURE, 0, _("locate database %s is corrupt or invalid"),
-             quotearg_n_style (0, locale_quoting_style, procdata->dbfile));
+      die (EXIT_FAILURE, 0, _("locate database %s is corrupt or invalid"),
+           quotearg_n_style (0, locale_quoting_style, procdata->dbfile));
     }
 
   /* Overlay the old path with the remainder of the new.  */
@@ -1086,11 +1067,6 @@ search_one_database (int argc,
                                    nread,
                                    &slocate_seclevel))
     {
-      error (0, 0,
-             _("%s is an slocate database.  "
-               "Support for these is new, expect problems for now."),
-             quotearg_n_style (0, locale_quoting_style, procdata.dbfile));
-
       /* slocate also uses frcode, but with a different header.
        * We handle the header here and then work with the data
        * in the normal way.
@@ -1166,10 +1142,10 @@ search_one_database (int argc,
                                      256 - nread, procdata.fp);
               if ( (more_read + nread) != 256 )
                 {
-                  error (EXIT_FAILURE, 0,
-                         _("Old-format locate database %s is "
-                           "too short to be valid"),
-                         quotearg_n_style (0, locale_quoting_style, dbfile));
+                  die (EXIT_FAILURE, 0,
+                       _("Old-format locate database %s is "
+                         "too short to be valid"),
+                       quotearg_n_style (0, locale_quoting_style, dbfile));
 
                 }
             }
@@ -1211,7 +1187,7 @@ search_one_database (int argc,
                                               &p->regex);
           if (error_message)
             {
-              error (EXIT_FAILURE, 0, "%s", error_message);
+              die (EXIT_FAILURE, 0, "%s", error_message);
             }
           else
             {
@@ -1381,10 +1357,16 @@ search_one_database (int argc,
 
 extern char *version_string;
 
-static void
-usage (FILE *stream)
+static void _GL_ATTRIBUTE_NORETURN
+usage (int status)
 {
-  fprintf (stream, _("\
+  if (status != EXIT_SUCCESS)
+    {
+      fprintf (stderr, _("Try '%s --help' for more information.\n"), program_name);
+      exit (status);
+    }
+
+  fprintf (stdout, _("\
 Usage: %s [-d path | --database=path] [-e | -E | --[non-]existing]\n\
       [-i | --ignore-case] [-w | --wholename] [-b | --basename] \n\
       [--limit=N | -l N] [-S | --statistics] [-0 | --null] [-c | --count]\n\
@@ -1393,8 +1375,11 @@ Usage: %s [-d path | --database=path] [-e | -E | --[non-]existing]\n\
       [--max-database-age D] [--version] [--help]\n\
       pattern...\n"),
            program_name);
-  fputs (_("\nReport bugs to <bug-findutils@gnu.org>.\n"), stream);
+
+  explain_how_to_report_bugs (stdout, program_name);
+  exit (status);
 }
+
 enum
   {
     REGEXTYPE_OPTION = CHAR_MAX + 1,
@@ -1505,8 +1490,8 @@ drop_privs (void)
   return 0;
 
  fail:
-  error (EXIT_FAILURE, errno, "%s",
-         quotearg_n_style (0, locale_quoting_style, what));
+  die (EXIT_FAILURE, errno, "%s",
+       quotearg_n_style (0, locale_quoting_style, what));
   abort ();
   kill (0, SIGKILL);
   _exit (1);
@@ -1545,7 +1530,7 @@ cleanup_quote_opts (void)
 }
 
 
-int
+static int
 dolocate (int argc, char **argv, int secure_db_fd)
 {
   char *path_element = NULL;
@@ -1584,7 +1569,7 @@ dolocate (int argc, char **argv, int secure_db_fd)
   quote_opts = clone_quoting_options (NULL);
   if (atexit (close_stdout) || atexit (cleanup_quote_opts))
     {
-      error (EXIT_FAILURE, errno, _("The atexit library function failed"));
+      die (EXIT_FAILURE, errno, _("The atexit library function failed"));
     }
 
   limits.limit = 0;
@@ -1593,7 +1578,7 @@ dolocate (int argc, char **argv, int secure_db_fd)
   print_quoted_filename = true;
 
   /* We cannot simultaneously trust $LOCATE_PATH and use the
-   * setuid-access-controlled database,, since that could cause a leak
+   * setuid-access-controlled database, since that could cause a leak
    * of private data.
    */
   user_selected_locate_path = getenv ("LOCATE_PATH");
@@ -1645,8 +1630,7 @@ dolocate (int argc, char **argv, int secure_db_fd)
           break;
 
         case 'h':
-          usage (stdout);
-          return 0;
+          usage (EXIT_SUCCESS);
 
         case MAX_DB_AGE:
           /* XXX: nothing in the test suite for this option. */
@@ -1710,8 +1694,7 @@ dolocate (int argc, char **argv, int secure_db_fd)
           break;
 
         default:
-          usage (stderr);
-          return 1;
+          usage (EXIT_FAILURE);
         }
     }
 
@@ -1740,8 +1723,8 @@ dolocate (int argc, char **argv, int secure_db_fd)
     {
       if (!just_count && optind == argc)
         {
-          usage (stderr);
-          return 1;
+          error (0, 0, _("pattern argument expected"));
+          usage (EXIT_FAILURE);
         }
     }
 
@@ -1865,7 +1848,7 @@ dolocate (int argc, char **argv, int secure_db_fd)
                   /* For example:
                      warning: database `fred' is more than 8 days old (actual age is 10 days)*/
                   error (0, 0,
-                         _("warning: database %s is more than %d %s old (actual age is %.1f %s)"),
+                         _("warning: database %s is more than %u %s old (actual age is %.1f %s)"),
                          quotearg_n_style (0,  locale_quoting_style, db_name),
                          warn_number_units,              _(warn_name_units),
                          (age/(double)SECONDS_PER_UNIT), _(warn_name_units));
@@ -1919,7 +1902,7 @@ dolocate (int argc, char **argv, int secure_db_fd)
 
   if (just_count)
     {
-      printf ("%ld\n", found);
+      printf ("%lu\n", found);
     }
 
   if (found || (use_limit && (limits.limit==0)) || stats )
@@ -1928,7 +1911,6 @@ dolocate (int argc, char **argv, int secure_db_fd)
     return 1;
 }
 
-#define ARRAYSIZE(a) (sizeof (a)/sizeof (a[0]))
 static int
 open_secure_db (void)
 {

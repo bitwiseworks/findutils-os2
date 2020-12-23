@@ -1,6 +1,5 @@
 /* pred.c -- execute the expression tree.
-   Copyright (C) 1990, 1991, 1992, 1993, 1994, 2000, 2003, 2004, 2005,
-   2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1990-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* config.h always comes first. */
@@ -26,7 +25,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
-#include <locale.h>
 #include <math.h>
 #include <pwd.h>
 #include <selinux/selinux.h>
@@ -41,46 +39,33 @@
 #include "dirname.h"
 #include "error.h"
 #include "fnmatch.h"
-#include "gettext.h"
 #include "stat-size.h"
 #include "stat-time.h"
 #include "yesno.h"
 
 /* find headers. */
 #include "defs.h"
+#include "die.h"
 #include "dircallback.h"
 #include "listfile.h"
 #include "printquoted.h"
+#include "system.h"
 
 
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* See locate.c for explanation as to why not use (String) */
-# define N_(String) String
-#endif
 
 #ifdef CLOSEDIR_VOID
 /* Fake a return value. */
-#define CLOSEDIR(d) (closedir (d), 0)
+# define CLOSEDIR(d) (closedir (d), 0)
 #else
-#define CLOSEDIR(d) closedir (d)
+# define CLOSEDIR(d) closedir (d)
 #endif
 
 static bool match_lname (const char *pathname, struct stat *stat_buf, struct predicate *pred_ptr, bool ignore_case);
 
-#ifdef	DEBUG
 struct pred_assoc
 {
   PRED_FUNC pred_func;
-  char *pred_name;
+  const char *pred_name;
 };
 
 struct pred_assoc pred_table[] =
@@ -145,7 +130,6 @@ struct pred_assoc pred_table[] =
   {pred_context, "context"},
   {0, "none    "}
 };
-#endif
 
 /* Returns ts1 - ts2 */
 static double ts_difference (struct timespec ts1,
@@ -324,6 +308,12 @@ pred_delete (const char *pathname, struct stat *stat_buf, struct predicate *pred
 	}
       else
 	{
+	  if (ENOENT == errno && options.ignore_readdir_race)
+	    {
+	      /* Ignore unlink() error for vanished files.  */
+	      errno = 0;
+	      return true;
+	    }
 	  if (EISDIR == errno)
 	    {
 	      if ((flags & AT_REMOVEDIR) == 0)
@@ -373,9 +363,9 @@ pred_empty (const char *pathname, struct stat *stat_buf, struct predicate *pred_
       errno = 0;
       if ((fd = openat (state.cwd_dir_fd, state.rel_pathname, O_RDONLY
 #if defined O_LARGEFILE
-			|O_LARGEFILE
+			| O_LARGEFILE
 #endif
-		       )) < 0)
+			| O_CLOEXEC | O_DIRECTORY | O_NOCTTY | O_NONBLOCK)) < 0)
 	{
 	  error (0, errno, "%s", safely_quote_err_filename (0, pathname));
 	  state.exit_status = 1;
@@ -386,8 +376,12 @@ pred_empty (const char *pathname, struct stat *stat_buf, struct predicate *pred_
 	{
 	  error (0, errno, "%s", safely_quote_err_filename (0, pathname));
 	  state.exit_status = 1;
+	  close (fd);
 	  return false;
 	}
+      /* errno is not touched in the loop body, so initializing it here
+       * once before the loop is enough to detect readdir(3) errors.  */
+      errno = 0;
       for (dp = readdir (d); dp; dp = readdir (d))
 	{
 	  if (dp->d_name[0] != '.'
@@ -397,6 +391,14 @@ pred_empty (const char *pathname, struct stat *stat_buf, struct predicate *pred_
 	      empty = false;
 	      break;
 	    }
+	}
+      if (errno)
+	{
+	  /* Handle errors from readdir(3). */
+	  error (0, errno, "%s", safely_quote_err_filename (0, pathname));
+	  state.exit_status = 1;
+	  CLOSEDIR (d);
+	  return false;
 	}
       if (CLOSEDIR (d))
 	{
@@ -545,7 +547,7 @@ pred_name_common (const char *pathname, const char *str, int flags)
   strip_trailing_slashes (base);
 
   /* FNM_PERIOD is not used here because POSIX requires that it not be.
-   * See http://standards.ieee.org/reading/ieee/interp/1003-2-92_int/pasc-1003.2-126.html
+   * See https://standards.ieee.org/reading/ieee/interp/1003-2-92_int/pasc-1003.2-126.html
    */
   b = fnmatch (str, base, flags) == 0;
   free (base);
@@ -765,7 +767,7 @@ is_ok (const char *program, const char *arg)
   /* XXX: printing UNTRUSTED data here. */
   if (fprintf (stderr, _("< %s ... %s > ? "), program, arg) < 0)
     {
-      error (EXIT_FAILURE, errno, _("Failed to write prompt for -ok"));
+      die (EXIT_FAILURE, errno, _("Failed to write prompt for -ok"));
     }
   fflush (stderr);
   return yesno ();
@@ -1040,7 +1042,7 @@ bool
 pred_type (const char *pathname, struct stat *stat_buf, struct predicate *pred_ptr)
 {
   mode_t mode;
-  mode_t type = pred_ptr->args.type;
+  enum file_type type = FTYPE_COUNT;
 
   assert (state.have_type);
 
@@ -1060,31 +1062,76 @@ pred_type (const char *pathname, struct stat *stat_buf, struct predicate *pred_p
      mode = state.type;
 
 #ifndef S_IFMT
-  /* POSIX system; check `mode' the slow way. */
-  if ((S_ISBLK (mode) && type == S_IFBLK)
-      || (S_ISCHR (mode) && type == S_IFCHR)
-      || (S_ISDIR (mode) && type == S_IFDIR)
-      || (S_ISREG (mode) && type == S_IFREG)
-#ifdef S_IFLNK
-      || (S_ISLNK (mode) && type == S_IFLNK)
-#endif
-#ifdef S_IFIFO
-      || (S_ISFIFO (mode) && type == S_IFIFO)
-#endif
-#ifdef S_IFSOCK
-      || (S_ISSOCK (mode) && type == S_IFSOCK)
-#endif
-#ifdef S_IFDOOR
-      || (S_ISDOOR (mode) && type == S_IFDOOR)
-#endif
-      )
+  /* POSIX system; check `mode' the slow way.
+   * Search in the order of probability (f,d,l,b,c,s,p,D).
+   */
+  if (S_ISREG (mode))
+     type = FTYPE_REG;
+  else if (S_ISDIR (mode))
+     type = FTYPE_DIR;
+# ifdef S_IFLNK
+  else if (S_ISLNK (mode))
+     type = FTYPE_LNK;
+# endif
+  else if (S_ISBLK (mode))
+     type = FTYPE_BLK;
+  else if (S_ISCHR (mode))
+     type = FTYPE_CHR;
+# ifdef S_IFSOCK
+  else if (S_ISSOCK (mode))
+     type = FTYPE_SOCK;
+# endif
+# ifdef S_IFIFO
+  else if (S_ISFIFO (mode))
+     type = FTYPE_FIFO;
+# endif
+# ifdef S_IFDOOR
+  else if (S_ISDOOR (mode))
+    type = FTYPE_DOOR;
+# endif
 #else /* S_IFMT */
   /* Unix system; check `mode' the fast way. */
-  if ((mode & S_IFMT) == type)
+  switch (mode & S_IFMT)
+    {
+    case S_IFREG:
+      type = FTYPE_REG;
+      break;
+    case S_IFDIR:
+      type = FTYPE_DIR;
+      break;
+# ifdef S_IFLNK
+    case S_IFLNK:
+      type = FTYPE_LNK;
+      break;
+# endif
+    case S_IFBLK:
+      type = FTYPE_BLK;
+      break;
+    case S_IFCHR:
+      type = FTYPE_CHR;
+      break;
+# ifdef S_IFSOCK
+    case S_IFSOCK:
+      type = FTYPE_SOCK;
+      break;
+# endif
+# ifdef S_IFIFO
+    case S_IFIFO:
+      type = FTYPE_FIFO;
+      break;
+# endif
+# ifdef S_IFDOOR
+    case S_IFDOOR:
+      type = FTYPE_DOOR;
+      break;
+# endif
+    }
 #endif /* S_IFMT */
-    return (true);
+
+  if ((type != FTYPE_COUNT) && pred_ptr->args.types[type])
+    return true;
   else
-    return (false);
+    return false;
 }
 
 bool
@@ -1270,25 +1317,25 @@ print_optlist (FILE *fp, const struct predicate *p)
     {
       print_parenthesised (fp, p->pred_left);
       fprintf (fp,
-	       "%s%s%s",
-	       p->need_stat ? "[call stat] " : "",
-	       p->need_type ? "[need type] " : "",
-	       p->need_inum ? "[need inum] " : "");
+               "%s%s%s",
+               p->need_stat ? "[call stat] " : "",
+               p->need_type ? "[need type] " : "",
+               p->need_inum ? "[need inum] " : "");
       print_predicate (fp, p);
-      fprintf (fp, " [%g] ", p->est_success_rate);
+      fprintf (fp, " [est success rate %.4g] ", p->est_success_rate);
       if (options.debug_options & DebugSuccessRates)
-	{
-	  fprintf (fp, "[%ld/%ld", p->perf.successes, p->perf.visits);
-	  if (p->perf.visits)
-	    {
-	      double real_rate = (double)p->perf.successes / (double)p->perf.visits;
-	      fprintf (fp, "=%g] ", real_rate);
-	    }
-	  else
-	    {
-	      fprintf (fp, "=_] ");
-	    }
-	}
+        {
+          fprintf (fp, "[real success rate %lu/%lu", p->perf.successes, p->perf.visits);
+          if (p->perf.visits)
+            {
+              double real_rate = (double)p->perf.successes / (double)p->perf.visits;
+              fprintf (fp, "=%.4g] ", real_rate);
+            }
+          else
+            {
+              fprintf (fp, "=_] ");
+            }
+        }
       print_parenthesised (fp, p->pred_right);
     }
 }
