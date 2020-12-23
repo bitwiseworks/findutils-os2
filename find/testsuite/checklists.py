@@ -49,7 +49,7 @@ def report_problems(problem_filenames, reporting_function):
 
 def file_names(listfile_name):
     for line in open(listfile_name, 'r').readlines():
-        yield line.rstrip('\n')
+        yield line.rstrip('\r\n')
 
 
 def configured_file_names(listfile_name):
