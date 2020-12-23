@@ -2,7 +2,7 @@
 * Internationalization
 ** updatedb.sh should be internationalized
 
-* man pages for frcode, bigram, and code
+* man page for frcode
 Perhaps a better description in texi pages as well.
 
 * Add option for find to sort output in lexical order for use for updatedb
@@ -81,9 +81,22 @@ Locale-dependent coverage:
                         --//--
 This is used by Emacs' spell checker ispell.el:
 
-LocalWords: strftime xargs updatedb sh strcpy
-LocalWords: lib frcode bigram texi depcomp automake
-LocalWords: LIBOBJS FUNC findutils
-LocalWords: LIBC TOLOWER TOUPPER tolower isupper
-LocalWords: Debian cron
-LocalWords: Haible BeOS
+LocalWords: xargs updatedb sh lib frcode bigram texi
+LocalWords: findutils Debian cron
+
+-----
+
+Copyright (C) 1996-2019 Free Software Foundation, Inc.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.

@@ -1,6 +1,5 @@
 /* find -- search for files in a directory hierarchy (fts version)
-   Copyright (C) 1990, 1091, 1992, 1993, 1994, 2000, 2003, 2004, 2005,
-   2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1990-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* This file was written by James Youngman, based on oldfind.c.
@@ -35,7 +34,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#include <locale.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -44,7 +42,7 @@
 #include "closeout.h"
 #include "error.h"
 #include "fts_.h"
-#include "gettext.h"
+#include "intprops.h"
 #include "progname.h"
 #include "quotearg.h"
 #include "save-cwd.h"
@@ -52,28 +50,14 @@
 
 /* find headers. */
 #include "defs.h"
+#include "die.h"
 #include "dircallback.h"
 #include "fdleak.h"
 #include "unused-result.h"
+#include "system.h"
 
-#define USE_SAFE_CHDIR 1
+
 #undef  STAT_MOUNTPOINTS
-
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#define textdomain(Domain)
-#define bindtextdomain(Package, Directory)
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* See locate.c for explanation as to why not use (String) */
-# define N_(String) String
-#endif
 
 
 /* FTS_TIGHT_CYCLE_CHECK tries to work around Savannah bug #17877
@@ -155,13 +139,12 @@ inside_dir (int dir_fd)
 static void init_mounted_dev_list (void);
 #endif
 
-#define STRINGIFY(X) #X
 #define HANDLECASE(N) case N: return #N;
 
-static char *
+static const char *
 get_fts_info_name (int info)
 {
-  static char buf[10];
+  static char buf[1 + INT_BUFSIZE_BOUND (info) + 1];
   switch (info)
     {
       HANDLECASE(FTS_D);
@@ -286,7 +269,7 @@ show_outstanding_execdirs (FILE *fp)
 {
   if (options.debug_options & DebugExec)
     {
-      int seen=0;
+      bool seen = false;
       struct predicate *p;
       p = get_eval_tree ();
       fprintf (fp, "Outstanding execdirs:");
@@ -305,7 +288,7 @@ show_outstanding_execdirs (FILE *fp)
 	    {
 	      size_t i;
 	      const struct exec_val *execp = &p->args.exec_vec;
-	      ++seen;
+	      seen = true;
 
 	      fprintf (fp, "%s ", pfx);
 	      if (execp->multiple)
@@ -360,11 +343,22 @@ consider_visiting (FTS *p, FTSENT *ent)
   statbuf.st_ino = ent->fts_statp->st_ino;
 
   /* Cope with various error conditions. */
-  if (ent->fts_info == FTS_ERR
-      || ent->fts_info == FTS_DNR)
+  if (ent->fts_info == FTS_ERR)
     {
       nonfatal_target_file_error (ent->fts_errno, ent->fts_path);
       return;
+    }
+  if (ent->fts_info == FTS_DNR)
+    {
+      nonfatal_target_file_error (ent->fts_errno, ent->fts_path);
+      if (options.do_dir_first)
+	{
+	  /* Return for unreadable directories without -depth.
+	   * With -depth, the directory itself has to be processed, yet the
+	   * error message above has to be output.
+	   */
+	  return;
+	}
     }
   else if (ent->fts_info == FTS_DC)
     {
@@ -621,16 +615,18 @@ static bool
 process_all_startpoints (int argc, char *argv[])
 {
   int i;
+  bool empty = true;
 
   /* figure out how many start points there are */
   for (i = 0; i < argc && !looks_like_expression (argv[i], true); i++)
     {
+      empty = false;
       state.starting_path_length = strlen (argv[i]); /* TODO: is this redundant? */
       if (!find (argv[i]))
 	return false;
     }
 
-  if (i == 0)
+  if (empty)
     {
       /*
        * We use a temporary variable here because some actions modify
@@ -673,8 +669,8 @@ main (int argc, char **argv)
   state.shared_files = sharefile_init ("w");
   if (NULL == state.shared_files)
     {
-      error (EXIT_FAILURE, errno,
-	     _("Failed to initialize shared-file hash table"));
+      die (EXIT_FAILURE, errno,
+	   _("Failed to initialize shared-file hash table"));
     }
 
   /* Set the option defaults before we do the locale initialisation as
@@ -690,7 +686,7 @@ main (int argc, char **argv)
   textdomain (PACKAGE);
   if (atexit (close_stdout))
     {
-      error (EXIT_FAILURE, errno, _("The atexit library function failed"));
+      die (EXIT_FAILURE, errno, _("The atexit library function failed"));
     }
 
   /* Check for -P, -H or -L options.  Also -D and -O, which are
@@ -701,9 +697,9 @@ main (int argc, char **argv)
   if (options.debug_options & DebugStat)
     options.xstat = debug_stat;
 
-#ifdef DEBUG
-  fprintf (stderr, "cur_day_start = %s", ctime (&options.cur_day_start));
-#endif /* DEBUG */
+
+  if (options.debug_options & DebugTime)
+    fprintf (stderr, "cur_day_start = %s", ctime (&options.cur_day_start.tv_sec));
 
 
   /* We are now processing the part of the "find" command line

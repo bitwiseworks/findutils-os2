@@ -1,10 +1,9 @@
-This is find.info, produced by makeinfo version 5.2 from find.texi.
+This is find.info, produced by makeinfo version 6.5 from find.texi.
 
 This file documents the GNU utilities for finding files that match
 certain criteria and performing various operations on them.
 
-   Copyright (C) 1994, 1996, 1998, 2000, 2001, 2003-2015 Free Software
-Foundation, Inc.
+   Copyright (C) 1994-2019 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -34,8 +33,7 @@ GNU Findutils
 This file documents the GNU utilities for finding files that match
 certain criteria and performing various operations on them.
 
-   Copyright (C) 1994, 1996, 1998, 2000, 2001, 2003-2015 Free Software
-Foundation, Inc.
+   Copyright (C) 1994-2019 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -47,7 +45,7 @@ Documentation License".
    This file documents the GNU utilities for finding files that match
 certain criteria and performing various actions on them.
 
-   This is edition 4.6.0, for 'find' version 4.6.0.
+   This is edition 4.7.0, for 'find' version 4.7.0.
 
 * Menu:
 
@@ -89,7 +87,7 @@ have contributed bug fixes, small improvements, and helpful suggestions.
 Thanks!
 
    To report a bug in GNU findutils, please use the form on the Savannah
-web site at 'http://savannah.gnu.org/bugs/?group=findutils'.  Reporting
+web site at 'https://savannah.gnu.org/bugs/?group=findutils'.  Reporting
 bugs this way means that you will then be able to track progress in
 fixing the problem.
 
@@ -202,7 +200,7 @@ information about the files it found.  It is run like this:
 
 Here is a typical use of 'find'.  This example prints the names of all
 files in the directory tree rooted in '/usr/src' whose name ends with
-'.c' and that are larger than 100 Kilobytes.
+'.c' and that are larger than 100 KiB.
      find /usr/src -name '*.c' -size +100k -print
 
    Notice that the wildcard must be enclosed in quotes in order to
@@ -255,9 +253,13 @@ An expression can contain any of the following types of primaries:
 
    You can omit the operator between two primaries; it defaults to
 '-and'.  *Note Combining Primaries With Operators::, for ways to connect
-primaries into more complex expressions.  If the expression contains no
-actions other than '-prune', '-print' is performed on all files for
-which the entire expression is true (*note Print File Name::).
+primaries into more complex expressions.
+
+   The '-print' action is performed on all files for which the entire
+expression is true (*note Print File Name::), unless the expression
+contains an action other than '-prune' or '-quit'.  Actions which
+inhibit the default '-print' are '-delete', '-exec', '-execdir', '-ok',
+'-okdir', '-fls', '-fprint', '-fprintf', '-ls', '-print' and '-printf'.
 
    Options take effect immediately, rather than being evaluated for each
 file when their place in the expression is reached.  Therefore, for
@@ -763,7 +765,7 @@ File: find.info,  Node: Time,  Next: Size,  Prev: Links,  Up: Finding Files
 2.3 Time
 ========
 
-Each file has three time stamps, which record the last time that certain
+Each file has three timestamps, which record the last time that certain
 operations were performed on the file:
 
   1. access (read the file's contents)
@@ -778,8 +780,8 @@ systems which support file birth time, files may exist for which this
 information was not recorded (for example, UFS1 file systems simply do
 not contain this information).
 
-   You can search for files whose time stamps are within a certain age
-range, or compare them to other time stamps.
+   You can search for files whose timestamps are within a certain age
+range, or compare them to other timestamps.
 
 * Menu:
 
@@ -884,15 +886,23 @@ of the current year.  One uses '-newermt':
      find /usr -newer /tmp/stamp$$
      rm -f /tmp/stamp$$
 
- -- Test: -anewer file
- -- Test: -cnewer file
- -- Test: -newer file
-     True if the file was last accessed (or its status changed, or it
-     was modified) more recently than FILE was modified.  These tests
-     are affected by '-follow' only if '-follow' comes before them on
-     the command line.  *Note Symbolic Links::, for more information on
-     '-follow'.  As an example, to list any files modified since
-     '/bin/sh' was last modified:
+ -- Test: -anewer reference
+ -- Test: -cnewer reference
+ -- Test: -newer reference
+     True if the time of the last access (or status change or data
+     modification) of the current file is more recent than that of the
+     last data modification of the REFERENCE file.
+
+     If REFERENCE is a symbolic link and the '-H' option or the '-L'
+     option is in effect, then the time of the last data modification of
+     the file it points to is always used.
+
+     These tests are affected by '-follow' only if '-follow' comes
+     before them on the command line.  *Note Symbolic Links::, for more
+     information on '-follow'.
+
+     As an example, to list any files modified since '/bin/sh' was last
+     modified:
 
           find . -newer /bin/sh
 
@@ -916,14 +926,15 @@ File: find.info,  Node: Size,  Next: Type,  Prev: Time,  Up: Finding Files
           512-byte blocks (never 1024)
      'c'
           bytes
-     'k'
-          kilobytes (1024 bytes)
      'w'
           2-byte words
+     'k'
+          Kibibytes (KiB, units of 1024 bytes)
      'M'
-          Megabytes (units of 1048576 bytes)
+          Mebibytes (MiB, units of 1024 * 1024 = 1048576 bytes)
      'G'
-          Gigabytes (units of 1073741824 bytes)
+          Gibibytes (GiB, units of 1024 * 1024 * 1024 = 1073741824
+          bytes)
 
      The 'b' suffix always considers blocks to be 512 bytes.  This is
      not affected by the setting (or non-setting) of the
@@ -935,12 +946,16 @@ File: find.info,  Node: Size,  Next: Type,  Prev: Time,  Up: Finding Files
      indicates that the test should succeed if the file uses at least N
      units of storage (a common use of this test) and a minus sign
      indicates that the test should succeed if the file uses less than N
-     units of storage.  There is no '=' prefix, because that's the
+     units of storage; i.e., an exact size of N units does not match.
+     Bear in mind that the size is rounded up to the next unit.
+     Therefore '-size -1M' is not equivalent to '-size -1048576c'.  The
+     former only matches empty files, the latter matches files from 0 to
+     1,048,575 bytes.  There is no '=' prefix, because that's the
      default anyway.
 
-     The size does not count indirect blocks, but it does count blocks
-     in sparse files that are not actually allocated.  In other words,
-     it's consistent with the result you get for 'ls -l' or 'wc -c'.
+     The size is simply the st_size member of the struct stat populated
+     by the lstat (or stat) system call, rounded up as shown above.  In
+     other words, it's consistent with the result you get for 'ls -l'.
      This handling of sparse files differs from the output of the '%k'
      and '%b' format specifiers for the '-printf' predicate.
 
@@ -977,6 +992,10 @@ File: find.info,  Node: Type,  Next: Owner,  Prev: Size,  Up: Finding Files
           socket
      'D'
           door (Solaris)
+
+     As a GNU extension, multiple file types can be provided as a
+     combined list separated by comma ','.  For example, '-type f,d,l'
+     is logically interpreted as '( -type f -o -type d -o -type l )'.
 
  -- Test: -xtype c
      This test behaves the same as '-type' unless the file is a symbolic
@@ -1117,9 +1136,10 @@ on the basis of the result of that test.
           their group, or anybody else).
 
      '-perm /022'
-          Match files that are writable by either their owner or their
-          group.  The files don't have to be writable by both the owner
-          and group to be matched; either will do.
+          Match files that are writable by their group or everyone else
+          - the latter often called "other".  The files don't have to be
+          writable by both the group and other to be matched; either
+          will do.
 
      '-perm /g+w,o+w'
           As above.
@@ -1128,19 +1148,19 @@ on the basis of the result of that test.
           As above.
 
      '-perm -022'
-          Match files that are writable by both their owner and their
-          group.
+          Match files that are writable by both their group and everyone
+          else.
+
+     '-perm -g+w,o+w'
+          As above.
 
      '-perm -444 -perm /222 ! -perm /111'
           Match files that are readable for everybody, have at least one
           write bit set (i.e., somebody can write to them), but that
           cannot be executed/searched by anybody.  Note that in some
-          shells the '!' must be escaped;.
+          shells the '!' must be escaped.
 
      '-perm -a+r -perm /a+w ! -perm /a+x'
-          As above.
-
-     '-perm -g+w,o+w'
           As above.
 
           Warning: If you specify '-perm /000' or '-perm /mode' where
@@ -1280,17 +1300,24 @@ slice of a directory tree.
      If a file disappears after its name has been read from a directory
      but before 'find' gets around to examining the file with 'stat',
      don't issue an error message.  If you don't specify this option, an
-     error message will be issued.  This option can be useful in system
-     scripts (cron scripts, for example) that examine areas of the
-     filesystem that change frequently (mail queues, temporary
-     directories, and so forth), because this scenario is common for
-     those sorts of directories.  Completely silencing error messages
-     from 'find' is undesirable, so this option neatly solves the
-     problem.  There is no way to search one part of the filesystem with
-     this option on and part of it with this option off, though.  When
-     this option is turned on and find discovers that one of the
-     start-point files specified on the command line does not exist, no
      error message will be issued.
+
+     Furthermore, 'find' with the '-ignore_readdir_race' option will
+     ignore errors of the '-delete' action in the case the file has
+     disappeared since the parent directory was read: it will not output
+     an error diagnostic, and the return code of the '-delete' action
+     will be true.
+
+     This option can be useful in system scripts (cron scripts, for
+     example) that examine areas of the filesystem that change
+     frequently (mail queues, temporary directories, and so forth),
+     because this scenario is common for those sorts of directories.
+     Completely silencing error messages from 'find' is undesirable, so
+     this option neatly solves the problem.  There is no way to search
+     one part of the filesystem with this option on and part of it with
+     this option off, though.  When this option is turned on and find
+     discovers that one of the start-point files specified on the
+     command line does not exist, no error message will be issued.
 
  -- Option: -noignore_readdir_race
      This option reverses the effect of the '-ignore_readdir_race'
@@ -1701,7 +1728,10 @@ File: find.info,  Node: Location Directives,  Next: Time Directives,  Prev: Size
 '%Y'
      Type of the file as used with '-type'.  If the file is a symbolic
      link, it is dereferenced.  If the file is a broken symbolic link,
-     'N' is printed.
+     'N' is printed.  When determining the type of the symlink target,
+     and a loop is encountered, then 'L' is printed (e.g.  for a symlink
+     to itself); '?' is printed for any other error (like e.g.
+     'permission denied').
 
 
 File: find.info,  Node: Time Directives,  Next: Other Directives,  Prev: Location Directives,  Up: Format Directives
@@ -1859,9 +1889,10 @@ components.
 'r'
      time, 12-hour (hh:mm:ss [AP]M)
 'T'
-     time, 24-hour (hh:mm:ss)
+     time, 24-hour (hh:mm:ss.xxxxxxxxxx)
 'X'
-     locale's time representation (H:M:S)
+     locale's time representation (H:M:S). The seconds field includes a
+     fractional part.
 'c'
      locale's date and time in ctime format (Sat Nov 04 12:02:33 EST
      1989).  This format does not include any fractional part in the
@@ -2058,7 +2089,8 @@ without exceeding the limit:
 
    However, if the command needs to have its standard input be a
 terminal ('less', for example), you have to use the shell command
-substitution method or use the '--arg-file' option of 'xargs'.
+substitution method or use either the '--arg-file' option or the
+'--open-tty' option of 'xargs'.
 
    The 'xargs' command will process all its input, building command
 lines and executing them, unless one of the commands exits with a status
@@ -2150,7 +2182,8 @@ the short form of the option '-0' can also be used.
 
    If you want to be able to handle file names safely but need to run
 commands which want to be connected to a terminal on their input, you
-can use the '--arg-file' option to 'xargs' like this:
+can use the '--open-tty' option to 'xargs' or the '--arg-file' option to
+'xargs' like this:
 
      find / -name xyzzy -print0 > list
      xargs --null --arg-file=list munge
@@ -2316,14 +2349,14 @@ printer-sized, and the original large file).  The script is doing enough
 work that it takes significant time to run, even on a single image.  You
 could run:
 
-     find originals -name '*.jpg' | xargs -1 makeallsizes
+     find originals -name '*.jpg' | xargs -l makeallsizes
 
    This will run 'makeallsizes FILENAME' once for each '.jpg' file in
 the 'originals' directory.  However, if your system has two central
 processors, this script will only keep one of them busy.  Instead, you
 could probably finish in about half the time by running:
 
-     find originals -name '*.jpg' | xargs -1 -P 2 makeallsizes
+     find originals -name '*.jpg' | xargs -l -P 2 makeallsizes
 
    'xargs' will run the first two commands in parallel, and then
 whenever one of them terminates, it will start another one, until the
@@ -2337,7 +2370,7 @@ the overall latency by overlapping their waiting time.
 
    If you are running commands in parallel, you need to think about how
 they should arbitrate access to any resources that they share.  For
-example, if more than one of them tries to print to stdout, the ouptut
+example, if more than one of them tries to print to stdout, the output
 will be produced in an indeterminate order (and very likely mixed up)
 unless the processes collaborate in some way to prevent this.  Using
 some kind of locking scheme is one way to prevent such problems.  In
@@ -2362,7 +2395,7 @@ shell or with the 'ps' command.  After you send it the signal 'SIGUSR2',
 signal 'SIGUSR1', it will run one more command in parallel.  For
 example:
 
-     shell$ xargs <allimages -1 -P 4 makeallsizes &
+     shell$ xargs <allimages -l -P 4 makeallsizes &
      [4] 27643
         ... at some later point ...
      shell$ kill -USR2 27643
@@ -2522,6 +2555,12 @@ File: find.info,  Node: Delete Files,  Next: Adding Tests,  Prev: Run Commands, 
      If '-delete' fails, 'find''s exit status will be nonzero (when it
      eventually exits).
 
+     Together with the '-ignore_readdir_race' option, 'find' will ignore
+     errors of the '-delete' action in the case the file has disappeared
+     since the parent directory was read: it will not output an error
+     diagnostic, and the return code of the '-delete' action will be
+     true.
+
 
 File: find.info,  Node: Adding Tests,  Prev: Delete Files,  Up: Actions
 
@@ -2647,17 +2686,17 @@ directory trees when the databases were last updated.  The file name
 database format changed starting with GNU 'locate' version 4.0 to allow
 machines with different byte orderings to share the databases.
 
-   GNU 'locate' can read both the old and new database formats.
-However, old versions of 'locate' (on other Unix systems, or GNU
-'locate' before version 4.0) produce incorrect results if run against a
-database in something other than the old format.
-
-   Support for the old database format will eventually be discontinued,
-first in 'updatedb' and later in 'locate'.
+   GNU 'locate' can read both the old pre-findutils-4.0 database format
+and the 'LOCATE02' database format.  Support for the old database format
+will shortly be removed from 'locate'.  It has already been removed from
+'updatedb'.
 
    If you run 'locate --statistics', the resulting summary indicates the
 type of each 'locate' database.  You select which database format
 'updatedb' will use with the '--dbformat' option.
+
+   The 'slocate' database format is very similar to 'LOCATE02' and is
+also supported (in both 'updatedb' and 'locate').
 
 * Menu:
 
@@ -2759,20 +2798,19 @@ File: find.info,  Node: Old Database Format,  Prev: slocate Database Format,  Up
 -------------------------
 
 The old database format is used by Unix 'locate' and 'find' programs and
-earlier releases of the GNU ones.  'updatedb' produces this format if
-given the '--old-format' option.
+pre-4.0 releases of GNU findutils.  'locate' understands this format,
+though 'updatedb' will no longer produce it.
 
-   'updatedb' runs programs called 'bigram' and 'code' to produce
-old-format databases.  The old format differs from the new one in the
-following ways.  Instead of each entry starting with an
-offset-differential count byte and ending with a null, byte values from
-0 through 28 indicate offset-differential counts from -14 through 14.
-The byte value indicating that a long offset-differential count follows
-is 0x1e (30), not 0x80.  The long counts are stored in host byte order,
-which is not necessarily network byte order, and host integer word size,
-which is usually 4 bytes.  They also represent a count 14 less than
-their value.  The database lines have no termination byte; the start of
-the next line is indicated by its first byte having a value <= 30.
+   The old format differs from 'LOCATE02' in the following ways.
+Instead of each entry starting with an offset-differential count byte
+and ending with a null, byte values from 0 through 28 indicate
+offset-differential counts from -14 through 14.  The byte value
+indicating that a long offset-differential count follows is 0x1e (30),
+not 0x80.  The long counts are stored in host byte order, which is not
+necessarily network byte order, and host integer word size, which is
+usually 4 bytes.  They also represent a count 14 less than their value.
+The database lines have no termination byte; the start of the next line
+is indicated by its first byte having a value <= 30.
 
    In addition, instead of starting with a dummy entry, the old database
 format starts with a 256 byte table containing the 128 most common
@@ -2783,26 +2821,21 @@ count coding makes these databases 20-25% smaller than the new format,
 but makes them not 8-bit clean.  Any byte in a file name that is in the
 ranges used for the special codes is replaced in the database by a
 question mark, which not coincidentally is the shell wildcard to match a
-single character.
+single character.  The old format therefore cannot faithfully store
+entries with non-ASCII characters.
 
-   The old format therefore cannot faithfully store entries with
-non-ASCII characters.  It therefore should not be used in
-internationalised environments.  That is, most installations should not
-use it.
-
-   Because the long counts are stored by the 'code' program as
-native-order machine words, the database format is not easily used in
-environments which differ in terms of byte order.  If locate databases
-are to be shared between machines, the LOCATE02 database format should
-be used.  This has other benefits as discussed above.  However, the
-length of the filename currently being processed can normally be used to
-place reasonable limits on the long counts and so this information is
-used by locate to help it guess the byte ordering of the old format
-database.  Unless it finds evidence to the contrary, 'locate' will
-assume that the byte order of the database is the same as the native
-byte order of the machine running 'locate'.  The output of 'locate
---statistics' also includes information about the byte order of
-old-format databases.
+   Because the long counts are stored as native-order machine words, the
+database format is not easily used in environments which differ in terms
+of byte order.  If locate databases are to be shared between machines,
+the 'LOCATE02' database format should be used.  This has other benefits
+as discussed above.  However, the length of the filename currently being
+processed can normally be used to place reasonable limits on the long
+counts and so this information is used by locate to help it guess the
+byte ordering of the old format database.  Unless it finds evidence to
+the contrary, 'locate' will assume that the byte order of the database
+is the same as the native byte order of the machine running 'locate'.
+The output of 'locate --statistics' also includes information about the
+byte order of old-format databases.
 
    The output of 'locate --statistics' will give an incorrect count of
 the number of file names containing newlines or high-bit characters for
@@ -2834,16 +2867,6 @@ this, the list of files is delimited with the newline character, meaning
 that parts of file names containing newlines will be incorrectly sorted.
 This can result in both incorrect matches and incorrect failures to
 match.
-
-   On the other hand, if you are using the old database format, file
-names with embedded newlines are not correctly handled.  There is no
-technical limitation which enforces this, it's just that the 'bigram'
-program has not been updated to support lists of file names separated by
-nulls.
-
-   So, if you are using the new database format (this is the default)
-and your system uses GNU 'sort', newlines will be correctly handled at
-all times.  Otherwise, newlines may not be correctly handled.
 
 
 File: find.info,  Node: File Permissions,  Next: Date input formats,  Prev: Databases,  Up: Top
@@ -3509,7 +3532,7 @@ better to use unambiguous numeric time zone corrections like '-0500', as
 described in the previous section.
 
    If neither a time zone item nor a time zone correction is supplied,
-time stamps are interpreted using the rules of the default time zone
+timestamps are interpreted using the rules of the default time zone
 (*note Specifying time zone rules::).
 
 
@@ -3649,12 +3672,12 @@ File: find.info,  Node: Seconds since the Epoch,  Next: Specifying time zone rul
 6.9 Seconds since the Epoch
 ===========================
 
-If you precede a number with '@', it represents an internal time stamp
-as a count of seconds.  The number can contain an internal decimal point
+If you precede a number with '@', it represents an internal timestamp as
+a count of seconds.  The number can contain an internal decimal point
 (either '.' or ','); any excess precision not supported by the internal
 representation is truncated toward minus infinity.  Such a number cannot
-be combined with any other date item, as it specifies a complete time
-stamp.
+be combined with any other date item, as it specifies a complete
+timestamp.
 
    Internally, computer times are represented as a count of seconds
 since an epoch--a well-defined point of time.  On GNU and POSIX systems,
@@ -3934,8 +3957,6 @@ options are triggered by:
 
    - Use of the '-d' option which is deprecated; please use '-depth'
      instead, since the latter is POSIX-compliant.
-   - Use of the '-ipath' option which is deprecated; please use
-     '-iwholename' instead.
    - Specifying an option (for example '-mindepth') after a non-option
      (for example '-type' or '-print') on the command line.
    - Use of the '-name' or '-iname' option with a slash character in the
@@ -4011,9 +4032,9 @@ will not find this option helpful.
    The list of debug options should be comma separated.  Compatibility
 of the debug options is not guaranteed between releases of findutils.
 For a complete list of valid debug options, see the output of 'find -D
-help'.  Valid debug options include:
-'help'
-     Explain the debugging options.
+help'.
+
+   Valid debug options include:
 'tree'
      Show the expression tree in its original and optimised form.
 'stat'
@@ -4025,6 +4046,10 @@ help'.  Valid debug options include:
 'rates'
      Prints a summary indicating how often each predicate succeeded or
      failed.
+'all'
+     Enable all of the other debug options (but 'help').
+'help'
+     Explain the debugging options.
 
 
 File: find.info,  Node: Find Expressions,  Prev: Debug Options,  Up: Invoking find
@@ -4254,23 +4279,12 @@ the environment.
      'user' is 'daemon'.  You can also use the environment variable
      'NETUSER' to set this user.
 
-'--old-format'
-     Generate a 'locate' database in the old format, for compatibility
-     with versions of 'locate' other than GNU 'locate'.  Using this
-     option means that 'locate' will not be able to properly handle
-     non-ASCII characters in file names (that is, file names containing
-     characters which have the eighth bit set, such as many of the
-     characters from the ISO-8859-1 character set).  *Note Database
-     Formats::, for a detailed description of the supported database
-     formats.
-
 '--dbformat=FORMAT'
      Generate the locate database in format 'FORMAT'.  Supported
-     database formats include 'LOCATE02' (which is the default), 'old'
-     and 'slocate'.  The 'old' format exists for compatibility with
-     implementations of 'locate' on other Unix systems.  The 'slocate'
-     format exists for compatibility with 'slocate'.  *Note Database
-     Formats::, for a detailed description of each format.
+     database formats include 'LOCATE02' (which is the default) and
+     'slocate'.  The 'slocate' format exists for compatibility with
+     'slocate'.  *Note Database Formats::, for a detailed description of
+     each format.
 
 '--help'
      Print a summary of the command line usage and exit.
@@ -4393,6 +4407,15 @@ File: find.info,  Node: xargs options,  Next: Invoking the shell from xargs,  Up
      is exceeded, unless the '-x' option is given, in which case 'xargs'
      will exit.
 
+'--open-tty'
+'-o'
+     Reopen stdin as '/dev/tty' in the child process before executing
+     the command, thus allowing that command to be associated to the
+     terminal while 'xargs' reads from a different stream, e.g.  from a
+     pipe.  This is useful if you want 'xargs' to run an interactive
+     application.
+          grep -lz PATTERN * | xargs -0o vi
+
 '--interactive'
 '-p'
      Prompt the user about whether to run each command line and read a
@@ -4514,6 +4537,10 @@ Therefore instead of keeping a 'sh' process around for no reason, we
 just arrange for the subshell to exec Emacs, saving an extra process
 creation.
 
+   Although GNU 'xargs' and the implementations on some other platforms
+like BSD support the '-o' option to achieve the same, the above is the
+portable way to redirect stdin to '/dev/tty'.
+
    Sometimes, though, it can be helpful to keep the shell process
 around:
 
@@ -4538,9 +4565,12 @@ your locale setup affects the interpretation of regular expressions.
 
    There are also several different types of regular expression, and
 these are interpreted differently.  Normally, the type of regular
-expression used by 'find' and 'locate' is the same as is used in GNU
-Emacs.  Both programs provide an option which allows you to select an
-alternative regular expression syntax; for 'find' this is the
+expression used by 'find' and 'locate' is almost identical to that used
+in GNU Emacs.  The single difference is that in 'find' and 'locate', a
+'.' will match a newline character.
+
+   Both 'find' and 'locate' provide an option which allows you to select
+an alternative regular expression syntax; for 'find' this is the
 '-regextype' option, and for 'locate' this is the '--regextype' option.
 
    These options take a single argument, which indicates the specific
@@ -4550,18 +4580,18 @@ should be one of the following:
 * Menu:
 
 * findutils-default regular expression syntax::
-* awk regular expression syntax::
-* egrep regular expression syntax::
 * emacs regular expression syntax::
 * gnu-awk regular expression syntax::
 * grep regular expression syntax::
 * posix-awk regular expression syntax::
+* awk regular expression syntax::
 * posix-basic regular expression syntax::
 * posix-egrep regular expression syntax::
+* egrep regular expression syntax::
 * posix-extended regular expression syntax::
 
 
-File: find.info,  Node: findutils-default regular expression syntax,  Next: awk regular expression syntax,  Up: Regular Expressions
+File: find.info,  Node: findutils-default regular expression syntax,  Next: emacs regular expression syntax,  Up: Regular Expressions
 
 8.5.1 'findutils-default' regular expression syntax
 ---------------------------------------------------
@@ -4627,6 +4657,7 @@ appears:
   1. At the end of a regular expression
 
   2. Before a close-group, signified by '\)'
+
   3. Before the alternation operator '\|'
 
    '*', '+' and '?' are special at any point in a regular expression
@@ -4635,6 +4666,7 @@ except:
   1. At the beginning of a regular expression
 
   2. After an open-group, signified by '\('
+
   3. After the alternation operator '\|'
 
    The longest possible match is returned; this applies to the regular
@@ -4642,129 +4674,9 @@ expression as a whole and (subject to this constraint) to subexpressions
 within groups.
 
 
-File: find.info,  Node: awk regular expression syntax,  Next: egrep regular expression syntax,  Prev: findutils-default regular expression syntax,  Up: Regular Expressions
+File: find.info,  Node: emacs regular expression syntax,  Next: gnu-awk regular expression syntax,  Prev: findutils-default regular expression syntax,  Up: Regular Expressions
 
-8.5.2 'awk' regular expression syntax
--------------------------------------
-
-The character '.' matches any single character except the null
-character.
-
-'+'
-     indicates that the regular expression should match one or more
-     occurrences of the previous atom or regexp.
-'?'
-     indicates that the regular expression should match zero or one
-     occurrence of the previous atom or regexp.
-'\+'
-     matches a '+'
-'\?'
-     matches a '?'.
-
-   Bracket expressions are used to match ranges of characters.  Bracket
-expressions where the range is backward, for example '[z-a]', are
-invalid.  Within square brackets, '\' can be used to quote the following
-character.  Character classes are supported; for example '[[:digit:]]'
-will match a single decimal digit.
-
-   GNU extensions are not supported and so '\w', '\W', '\<', '\>', '\b',
-'\B', '\`', and '\'' match 'w', 'W', '<', '>', 'b', 'B', '`', and '''
-respectively.
-
-   Grouping is performed with parentheses '()'.  An unmatched ')'
-matches just itself.  A backslash followed by a digit matches that
-digit.
-
-   The alternation operator is '|'.
-
-   The characters '^' and '$' always represent the beginning and end of
-a string respectively, except within square brackets.  Within brackets,
-'^' can be used to invert the membership of the character class being
-specified.
-
-   '*', '+' and '?' are special at any point in a regular expression
-except:
-
-  1. At the beginning of a regular expression
-
-  2. After an open-group, signified by '('
-  3. After the alternation operator '|'
-
-   The longest possible match is returned; this applies to the regular
-expression as a whole and (subject to this constraint) to subexpressions
-within groups.
-
-
-File: find.info,  Node: egrep regular expression syntax,  Next: emacs regular expression syntax,  Prev: awk regular expression syntax,  Up: Regular Expressions
-
-8.5.3 'egrep' regular expression syntax
----------------------------------------
-
-The character '.' matches any single character.
-
-'+'
-     indicates that the regular expression should match one or more
-     occurrences of the previous atom or regexp.
-'?'
-     indicates that the regular expression should match zero or one
-     occurrence of the previous atom or regexp.
-'\+'
-     matches a '+'
-'\?'
-     matches a '?'.
-
-   Bracket expressions are used to match ranges of characters.  Bracket
-expressions where the range is backward, for example '[z-a]', are
-invalid.  Within square brackets, '\' is taken literally.  Character
-classes are supported; for example '[[:digit:]]' will match a single
-decimal digit.
-
-   GNU extensions are supported:
-
-  1. '\w' matches a character within a word
-
-  2. '\W' matches a character which is not within a word
-
-  3. '\<' matches the beginning of a word
-
-  4. '\>' matches the end of a word
-
-  5. '\b' matches a word boundary
-
-  6. '\B' matches characters which are not a word boundary
-
-  7. '\`' matches the beginning of the whole input
-
-  8. '\'' matches the end of the whole input
-
-   Grouping is performed with parentheses '()'.  An unmatched ')'
-matches just itself.  A backslash followed by a digit acts as a
-back-reference and matches the same thing as the previous grouped
-expression indicated by that number.  For example '\2' matches the
-second group expression.  The order of group expressions is determined
-by the position of their opening parenthesis '('.
-
-   The alternation operator is '|'.
-
-   The characters '^' and '$' always represent the beginning and end of
-a string respectively, except within square brackets.  Within brackets,
-'^' can be used to invert the membership of the character class being
-specified.
-
-   The characters '*', '+' and '?' are special anywhere in a regular
-expression.
-
-   Intervals are specified by '{' and '}'.  Invalid intervals are
-treated as literals, for example 'a{1' is treated as 'a\{1'
-
-   The longest possible match is returned; this applies to the regular
-expression as a whole and (subject to this constraint) to subexpressions
-within groups.
-
-
-File: find.info,  Node: emacs regular expression syntax,  Next: gnu-awk regular expression syntax,  Prev: egrep regular expression syntax,  Up: Regular Expressions
-
-8.5.4 'emacs' regular expression syntax
+8.5.2 'emacs' regular expression syntax
 ---------------------------------------
 
 The character '.' matches any single character except newline.
@@ -4828,6 +4740,7 @@ appears:
   1. At the end of a regular expression
 
   2. Before a close-group, signified by '\)'
+
   3. Before the alternation operator '\|'
 
    '*', '+' and '?' are special at any point in a regular expression
@@ -4836,6 +4749,7 @@ except:
   1. At the beginning of a regular expression
 
   2. After an open-group, signified by '\('
+
   3. After the alternation operator '\|'
 
    The longest possible match is returned; this applies to the regular
@@ -4845,7 +4759,7 @@ within groups.
 
 File: find.info,  Node: gnu-awk regular expression syntax,  Next: grep regular expression syntax,  Prev: emacs regular expression syntax,  Up: Regular Expressions
 
-8.5.5 'gnu-awk' regular expression syntax
+8.5.3 'gnu-awk' regular expression syntax
 -----------------------------------------
 
 The character '.' matches any single character.
@@ -4905,6 +4819,7 @@ except:
   1. At the beginning of a regular expression
 
   2. After an open-group, signified by '('
+
   3. After the alternation operator '|'
 
    Intervals are specified by '{' and '}'.  Invalid intervals are
@@ -4917,7 +4832,7 @@ within groups.
 
 File: find.info,  Node: grep regular expression syntax,  Next: posix-awk regular expression syntax,  Prev: gnu-awk regular expression syntax,  Up: Regular Expressions
 
-8.5.6 'grep' regular expression syntax
+8.5.4 'grep' regular expression syntax
 --------------------------------------
 
 The character '.' matches any single character.
@@ -4981,6 +4896,7 @@ appears:
   1. At the end of a regular expression
 
   2. Before a close-group, signified by '\)'
+
   3. Before a newline
 
   4. Before the alternation operator '\|'
@@ -4991,6 +4907,7 @@ except:
   1. At the beginning of a regular expression
 
   2. After an open-group, signified by '\('
+
   3. After a newline
 
   4. After the alternation operator '\|'
@@ -5003,9 +4920,9 @@ expression as a whole and (subject to this constraint) to subexpressions
 within groups.
 
 
-File: find.info,  Node: posix-awk regular expression syntax,  Next: posix-basic regular expression syntax,  Prev: grep regular expression syntax,  Up: Regular Expressions
+File: find.info,  Node: posix-awk regular expression syntax,  Next: awk regular expression syntax,  Prev: grep regular expression syntax,  Up: Regular Expressions
 
-8.5.7 'posix-awk' regular expression syntax
+8.5.5 'posix-awk' regular expression syntax
 -------------------------------------------
 
 The character '.' matches any single character except the null
@@ -5052,6 +4969,7 @@ except the following places, where they are not allowed:
   1. At the beginning of a regular expression
 
   2. After an open-group, signified by '('
+
   3. After the alternation operator '|'
 
    Intervals are specified by '{' and '}'.  Invalid intervals are
@@ -5062,23 +4980,221 @@ expression as a whole and (subject to this constraint) to subexpressions
 within groups.
 
 
-File: find.info,  Node: posix-basic regular expression syntax,  Next: posix-egrep regular expression syntax,  Prev: posix-awk regular expression syntax,  Up: Regular Expressions
+File: find.info,  Node: awk regular expression syntax,  Next: posix-basic regular expression syntax,  Prev: posix-awk regular expression syntax,  Up: Regular Expressions
 
-8.5.8 'posix-basic' regular expression syntax
----------------------------------------------
+8.5.6 'awk' regular expression syntax
+-------------------------------------
 
-This is a synonym for ed.
+The character '.' matches any single character except the null
+character.
+
+'+'
+     indicates that the regular expression should match one or more
+     occurrences of the previous atom or regexp.
+'?'
+     indicates that the regular expression should match zero or one
+     occurrence of the previous atom or regexp.
+'\+'
+     matches a '+'
+'\?'
+     matches a '?'.
+
+   Bracket expressions are used to match ranges of characters.  Bracket
+expressions where the range is backward, for example '[z-a]', are
+invalid.  Within square brackets, '\' can be used to quote the following
+character.  Character classes are supported; for example '[[:digit:]]'
+will match a single decimal digit.
+
+   GNU extensions are not supported and so '\w', '\W', '\<', '\>', '\b',
+'\B', '\`', and '\'' match 'w', 'W', '<', '>', 'b', 'B', '`', and '''
+respectively.
+
+   Grouping is performed with parentheses '()'.  An unmatched ')'
+matches just itself.  A backslash followed by a digit matches that
+digit.
+
+   The alternation operator is '|'.
+
+   The characters '^' and '$' always represent the beginning and end of
+a string respectively, except within square brackets.  Within brackets,
+'^' can be used to invert the membership of the character class being
+specified.
+
+   '*', '+' and '?' are special at any point in a regular expression
+except:
+
+  1. At the beginning of a regular expression
+
+  2. After an open-group, signified by '('
+
+  3. After the alternation operator '|'
+
+   The longest possible match is returned; this applies to the regular
+expression as a whole and (subject to this constraint) to subexpressions
+within groups.
 
 
-File: find.info,  Node: posix-egrep regular expression syntax,  Next: posix-extended regular expression syntax,  Prev: posix-basic regular expression syntax,  Up: Regular Expressions
+File: find.info,  Node: posix-basic regular expression syntax,  Next: posix-egrep regular expression syntax,  Prev: awk regular expression syntax,  Up: Regular Expressions
 
-8.5.9 'posix-egrep' regular expression syntax
+8.5.7 'posix-basic' regular expression syntax
 ---------------------------------------------
 
-This is a synonym for egrep.
+The character '.' matches any single character except the null
+character.
+
+'\+'
+     indicates that the regular expression should match one or more
+     occurrences of the previous atom or regexp.
+'\?'
+     indicates that the regular expression should match zero or one
+     occurrence of the previous atom or regexp.
+'+ and ?'
+     match themselves.
+
+   Bracket expressions are used to match ranges of characters.  Bracket
+expressions where the range is backward, for example '[z-a]', are
+invalid.  Within square brackets, '\' is taken literally.  Character
+classes are supported; for example '[[:digit:]]' will match a single
+decimal digit.
+
+   GNU extensions are supported:
+
+  1. '\w' matches a character within a word
+
+  2. '\W' matches a character which is not within a word
+
+  3. '\<' matches the beginning of a word
+
+  4. '\>' matches the end of a word
+
+  5. '\b' matches a word boundary
+
+  6. '\B' matches characters which are not a word boundary
+
+  7. '\`' matches the beginning of the whole input
+
+  8. '\'' matches the end of the whole input
+
+   Grouping is performed with backslashes followed by parentheses '\(',
+'\)'.  A backslash followed by a digit acts as a back-reference and
+matches the same thing as the previous grouped expression indicated by
+that number.  For example '\2' matches the second group expression.  The
+order of group expressions is determined by the position of their
+opening parenthesis '\('.
+
+   The alternation operator is '\|'.
+
+   The character '^' only represents the beginning of a string when it
+appears:
+
+  1. At the beginning of a regular expression
+
+  2. After an open-group, signified by '\('
+
+  3. After the alternation operator '\|'
+
+   The character '$' only represents the end of a string when it
+appears:
+
+  1. At the end of a regular expression
+
+  2. Before a close-group, signified by '\)'
+
+  3. Before the alternation operator '\|'
+
+   '\*', '\+' and '\?' are special at any point in a regular expression
+except:
+
+  1. At the beginning of a regular expression
+
+  2. After an open-group, signified by '\('
+
+  3. After the alternation operator '\|'
+
+   Intervals are specified by '\{' and '\}'.  Invalid intervals such as
+'a\{1z' are not accepted.
+
+   The longest possible match is returned; this applies to the regular
+expression as a whole and (subject to this constraint) to subexpressions
+within groups.
 
 
-File: find.info,  Node: posix-extended regular expression syntax,  Prev: posix-egrep regular expression syntax,  Up: Regular Expressions
+File: find.info,  Node: posix-egrep regular expression syntax,  Next: egrep regular expression syntax,  Prev: posix-basic regular expression syntax,  Up: Regular Expressions
+
+8.5.8 'posix-egrep' regular expression syntax
+---------------------------------------------
+
+The character '.' matches any single character.
+
+'+'
+     indicates that the regular expression should match one or more
+     occurrences of the previous atom or regexp.
+'?'
+     indicates that the regular expression should match zero or one
+     occurrence of the previous atom or regexp.
+'\+'
+     matches a '+'
+'\?'
+     matches a '?'.
+
+   Bracket expressions are used to match ranges of characters.  Bracket
+expressions where the range is backward, for example '[z-a]', are
+invalid.  Within square brackets, '\' is taken literally.  Character
+classes are supported; for example '[[:digit:]]' will match a single
+decimal digit.
+
+   GNU extensions are supported:
+
+  1. '\w' matches a character within a word
+
+  2. '\W' matches a character which is not within a word
+
+  3. '\<' matches the beginning of a word
+
+  4. '\>' matches the end of a word
+
+  5. '\b' matches a word boundary
+
+  6. '\B' matches characters which are not a word boundary
+
+  7. '\`' matches the beginning of the whole input
+
+  8. '\'' matches the end of the whole input
+
+   Grouping is performed with parentheses '()'.  An unmatched ')'
+matches just itself.  A backslash followed by a digit acts as a
+back-reference and matches the same thing as the previous grouped
+expression indicated by that number.  For example '\2' matches the
+second group expression.  The order of group expressions is determined
+by the position of their opening parenthesis '('.
+
+   The alternation operator is '|'.
+
+   The characters '^' and '$' always represent the beginning and end of
+a string respectively, except within square brackets.  Within brackets,
+'^' can be used to invert the membership of the character class being
+specified.
+
+   The characters '*', '+' and '?' are special anywhere in a regular
+expression.
+
+   Intervals are specified by '{' and '}'.  Invalid intervals are
+treated as literals, for example 'a{1' is treated as 'a\{1'
+
+   The longest possible match is returned; this applies to the regular
+expression as a whole and (subject to this constraint) to subexpressions
+within groups.
+
+
+File: find.info,  Node: egrep regular expression syntax,  Next: posix-extended regular expression syntax,  Prev: posix-egrep regular expression syntax,  Up: Regular Expressions
+
+8.5.9 'egrep' regular expression syntax
+---------------------------------------
+
+This is a synonym for posix-egrep.
+
+
+File: find.info,  Node: posix-extended regular expression syntax,  Prev: egrep regular expression syntax,  Up: Regular Expressions
 
 8.5.10 'posix-extended' regular expression syntax
 -------------------------------------------------
@@ -5141,6 +5257,7 @@ except the following places, where they are not allowed:
   1. At the beginning of a regular expression
 
   2. After an open-group, signified by '('
+
   3. After the alternation operator '|'
 
    Intervals are specified by '{' and '}'.  Invalid intervals such as
@@ -5283,6 +5400,10 @@ The single quotes in the command line protect the '$@' against expansion
 by your interactive shell (which will normally have no arguments and
 thus expand '$@' to nothing).  The capitalised 'Emacs' on the command
 line is used as '$0' by the shell that 'xargs' launches.
+
+   Please note that the implementations in GNU 'xargs' and at least BSD
+support the '-o' option as extension to achieve the same, while the
+above is the portable way to redirect stdin to '/dev/tty'.
 
 
 File: find.info,  Node: Archiving,  Next: Cleaning Up,  Prev: Viewing And Editing,  Up: Common Tasks
@@ -5908,7 +6029,7 @@ entirely:
 
      newest=$(find subdir -newer timestamp -printf "%A%p\n" |
                 sort -n |
-                tail -1 |
+                tail -n1 |
                 cut -d: -f2- )
      touch -r "${newest:-timestamp}" timestamp
 
@@ -6280,7 +6401,7 @@ on the method which is normally used if 'O_NOFOLLOW' is not supported.
 For example, if I run this on my system now, this gives:
      find (GNU findutils) 4.5.11-git
      Copyright (C) 2012 Free Software Foundation, Inc.
-     License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+     License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
      This is free software: you are free to change and redistribute it.
      There is NO WARRANTY, to the extent permitted by law.
 
@@ -6315,9 +6436,9 @@ changes directory, it examines the directory it is about to move to,
 issues the 'chdir()' system call, and then checks that it has ended up
 in the subdirectory it expected.  If all is as expected, processing
 continues as normal.  However, there are two main reasons why the
-directory might change: the use of an automounter and the someone
-removing the old directory and replacing it with something else while
-'find' is trying to descend into it.
+directory might change: the use of an automounter and someone removing
+the old directory and replacing it with something else while 'find' is
+trying to descend into it.
 
    Where a filesystem "automounter" is in use it can be the case that
 the use of the 'chdir()' system call can itself cause a new filesystem
@@ -6488,42 +6609,6 @@ problems relating to whitespace in file names can be resolved by using
 associated with 'find ... -print0'.  There is no way to avoid these
 problems in the case of 'locate'.
 
-11.4.2 Long File Name Bugs with Old-Format Databases
-----------------------------------------------------
-
-Old versions of 'locate' have a bug in the way that old-format databases
-are read.  This bug affects the following versions of 'locate':
-
-  1. All releases prior to 4.2.31
-  2. All 4.3.x releases prior to 4.3.7
-
-   The affected versions of 'locate' read file names into a fixed-length
-1026 byte buffer, allocated on the heap.  This buffer is not extended if
-file names are too long to fit into the buffer.  No range checking on
-the length of the filename is performed.  This could in theory lead to a
-privilege escalation attack.  Findutils versions 4.3.0 to 4.3.6 are also
-affected.
-
-   On systems using the old database format and affected versions of
-'locate', carefully-chosen long file names could in theory allow
-malicious users to run code of their choice as any user invoking locate.
-
-   If remote users can choose the names of files stored on your system,
-and these files are indexed by 'updatedb', this may be a remote security
-vulnerability.  Findutils version 4.2.31 and findutils version 4.3.7
-include fixes for this problem.  The 'updatedb', 'bigram' and 'code'
-programs do no appear to be affected.
-
-   If you are also using GNU coreutils, you can use the following
-command to determine the length of the longest file name on a given
-system:
-
-     find / -print0 | tr -c '\0' 'x' | tr '\0' '\n' | wc -L
-
-   Although this problem is significant, the old database format is not
-the default, and use of the old database format is not common.  Most
-installations and most users will not be affected by this problem.
-
 
 File: find.info,  Node: Security Summary,  Next: Further Reading on Security,  Prev: Security Considerations for locate,  Up: Security Considerations
 
@@ -6559,18 +6644,18 @@ useful articles on the web that touch on the issues described above:
 <http://goo.gl/DAvh>
      This article describes some of the unfortunate effects of allowing
      free choice of file names.
-<http://cwe.mitre.org/data/definitions/78.html>
+<https://cwe.mitre.org/data/definitions/78.html>
      Describes OS Command Injection
 <https://cwe.mitre.org/data/definitions/73.html>
      Describes problems arising from allowing remote computers to send
      requests which specify file names of their choice
-<http://cwe.mitre.org/data/definitions/116.html>
+<https://cwe.mitre.org/data/definitions/116.html>
      Describes problems relating to encoding file names and escaping
      characters.  This article is relevant to findutils because for
      command lines processed via the shell, the encoding and escaping
      rules are already set by the shell.  For example command lines like
      'find ... -print | some-shell-script' require specific care.
-<http://xkcd.com/327/>
+<https://xkcd.com/327/>
      A humorous and pithy summary of the broader problem.
 
 
@@ -6742,6 +6827,11 @@ File: find.info,  Node: Error Messages From xargs,  Next: Error Messages From lo
      ignored (though if you're a programmer, you may want to help us
      figure out why 'xargs' is confused by your operating system).
 
+'failed to redirect standard input of the child process'
+     'xargs' redirects the stdin stream of the command to be run to
+     either '/dev/null' or to '/dev/tty' for the '-o' option.  See the
+     manual of the system call 'dup2(2)'.
+
 
 File: find.info,  Node: Error Messages From locate,  Next: Error Messages From updatedb,  Prev: Error Messages From xargs,  Up: Error Messages
 
@@ -6786,7 +6876,7 @@ Appendix A GNU Free Documentation License
                      Version 1.3, 3 November 2008
 
      Copyright (C) 2000, 2001, 2002, 2007, 2008 Free Software Foundation, Inc.
-     <http://fsf.org/>
+     <https://fsf.org/>
 
      Everyone is permitted to copy and distribute verbatim copies
      of this license document, but changing it is not allowed.
@@ -7183,7 +7273,7 @@ Appendix A GNU Free Documentation License
      the GNU Free Documentation License from time to time.  Such new
      versions will be similar in spirit to the present version, but may
      differ in detail to address new problems or concerns.  See
-     <http://www.gnu.org/copyleft/>.
+     <https://www.gnu.org/copyleft/>.
 
      Each version of the License is given a distinguishing version
      number.  If the Document specifies that a particular numbered

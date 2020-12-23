@@ -1,6 +1,5 @@
 /* xargs -- build and execute command lines from standard input
-   Copyright (C) 1990, 1991, 1992, 1993, 1994, 2000, 2003, 2004, 2005,
-   2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1990-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* Written by Mike Rendell <michael@cs.mun.ca>
@@ -28,7 +27,7 @@
    included (see the footnote to section 7.18.3 of ISO C99).  Because
    some other header may #include <stdint.h>, we define the macro
    here, first. */
-#define __STDC_LIMIT_MACROS
+#define __STDC_LIMIT_MACROS 1
 
 /* config.h must be included first. */
 #include <config.h>
@@ -42,7 +41,6 @@
 #include <getopt.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <locale.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -56,7 +54,6 @@
 /* gnulib headers. */
 #include "closein.h"
 #include "error.h"
-#include "gettext.h"
 #include "progname.h"
 #include "quotearg.h"
 #include "safe-read.h"
@@ -64,26 +61,16 @@
 
 /* find headers. */
 #include "buildcmd.h"
+#include "die.h"
+#include "bugreports.h"
 #include "fdleak.h"
 #include "findutils-version.h"
+#include "gcc-function-attributes.h"
+#include "system.h"
 
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#define textdomain(Domain)
-#define bindtextdomain(Package, Directory)
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop(String)
-#else
-/* See locate.c for explanation as to why not use (String) */
-# define N_(String) String
-#endif
 
 #ifndef LONG_MAX
-#define LONG_MAX (~(1 << (sizeof (long) * 8 - 1)))
+# define LONG_MAX (~(1 << (sizeof (long) * 8 - 1)))
 #endif
 
 #define ISBLANK(c) (isascii (c) && isblank (c))
@@ -155,6 +142,9 @@ static volatile int child_error = EXIT_SUCCESS;
 
 static volatile int original_exit_value;
 
+/* If true, open /dev/tty in the child process before executing the command.  */
+static bool open_tty = false; /* option -o */
+
 /* If true, print each command on stderr before executing it.  */
 static bool print_command = false; /* Option -t */
 
@@ -189,6 +179,7 @@ static struct option const longopts[] =
   {"replace", optional_argument, NULL, 'I'},
   {"max-lines", optional_argument, NULL, 'l'},
   {"max-args", required_argument, NULL, 'n'},
+  {"open-tty", no_argument, NULL, 'o'},
   {"interactive", no_argument, NULL, 'p'},
   {"no-run-if-empty", no_argument, NULL, 'r'},
   {"max-chars", required_argument, NULL, 's'},
@@ -229,7 +220,7 @@ static void wait_for_proc_all (void);
 static void increment_proc_max (int);
 static void decrement_proc_max (int);
 static long parse_num (char *str, int option, long min, long max, int fatal);
-static void usage (FILE * stream);
+static void usage (int status) _GL_ATTRIBUTE_NORETURN;
 
 
 static char
@@ -257,9 +248,9 @@ get_char_oct_or_hex_escape (const char *s)
   else
     {
       p = NULL;			/* Silence compiler warning. */
-      error (EXIT_FAILURE, 0,
-	     _("Invalid escape sequence %s in input delimiter specification."),
-	     s);
+      die (EXIT_FAILURE, 0,
+	   _("Invalid escape sequence %s in input delimiter specification."),
+	   s);
     }
   errno = 0;
   endp = NULL;
@@ -275,24 +266,27 @@ get_char_oct_or_hex_escape (const char *s)
     {
       if (16 == base)
 	{
-	  error (EXIT_FAILURE, 0,
-		 _("Invalid escape sequence %s in input delimiter specification; character values must not exceed %lx."),
-		 s, (unsigned long)UCHAR_MAX);
+	  die (EXIT_FAILURE, 0,
+	       _("Invalid escape sequence %s in input delimiter specification; "
+		 "character values must not exceed %lx."),
+	       s, (unsigned long)UCHAR_MAX);
 	}
       else
 	{
-	  error (EXIT_FAILURE, 0,
-		 _("Invalid escape sequence %s in input delimiter specification; character values must not exceed %lo."),
-		 s, (unsigned long)UCHAR_MAX);
+	  die (EXIT_FAILURE, 0,
+	       _("Invalid escape sequence %s in input delimiter specification; "
+		 "character values must not exceed %lo."),
+	       s, (unsigned long)UCHAR_MAX);
 	}
     }
 
   /* check for trailing garbage */
   if (0 != *endp)
     {
-      error (EXIT_FAILURE, 0,
-	     _("Invalid escape sequence %s in input delimiter specification; trailing characters %s not recognised."),
-	     s, endp);
+      die (EXIT_FAILURE, 0,
+	   _("Invalid escape sequence %s in input delimiter specification; "
+	     "trailing characters %s not recognised."),
+	   s, endp);
     }
 
   return (char) val;
@@ -335,9 +329,11 @@ get_input_delimiter (const char *s)
 	}
       else
 	{
-	  error (EXIT_FAILURE, 0,
-		 _("Invalid input delimiter specification %s: the delimiter must be either a single character or an escape sequence starting with \\."),
-		 s);
+	  die (EXIT_FAILURE, 0,
+	       _("Invalid input delimiter specification %s: the delimiter must "
+		 "be either a single character or an escape sequence starting "
+		 "with \\."),
+	       s);
 	  /*NOTREACHED*/
 	  return 0;
 	}
@@ -353,7 +349,7 @@ noop (void)
 static void
 fail_due_to_env_size (void)
 {
-  error (EXIT_FAILURE, 0, _("environment is too large for exec"));
+  die (EXIT_FAILURE, 0, _("environment is too large for exec"));
 }
 
 static size_t
@@ -403,6 +399,11 @@ main (int argc, char **argv)
   enum { XARGS_POSIX_HEADROOM = 2048u };
   struct sigaction sigact;
 
+  /* We #define __STDC_LIMIT_MACROS above for its side effect on
+   * <limits.h>, but we use it here to avoid getting what would
+   * otherwise be a spurious compiler warning. */
+  (void) __STDC_LIMIT_MACROS;
+
   if (argv[0])
     set_program_name (argv[0]);
   else
@@ -420,11 +421,11 @@ main (int argc, char **argv)
 
   if (atexit (close_stdin) || atexit (wait_for_proc_all))
     {
-      error (EXIT_FAILURE, errno, _("The atexit library function failed"));
+      die (EXIT_FAILURE, errno, _("The atexit library function failed"));
     }
 
   /* xargs is required by POSIX to allow 2048 bytes of headroom
-   * for extra environment variables (that perhaps the utliity might
+   * for extra environment variables (that perhaps the utility might
    * want to set before execing something else).
    */
   bcstatus = bc_init_controlinfo (&bc_ctl, XARGS_POSIX_HEADROOM);
@@ -508,7 +509,7 @@ main (int argc, char **argv)
       bc_use_sensible_arg_max (&bc_ctl);
     }
 
-  while ((optc = getopt_long (argc, argv, "+0a:E:e::i::I:l::L:n:prs:txP:d:",
+  while ((optc = getopt_long (argc, argv, "+0a:E:e::i::I:l::L:n:oprs:txP:d:",
 			      longopts, &option_index)) != -1)
     {
       switch (optc)
@@ -532,8 +533,7 @@ main (int argc, char **argv)
 	  break;
 
 	case 'h':
-	  usage (stdout);
-	  return 0;
+	  usage (EXIT_SUCCESS);
 
 	case 'I':		/* POSIX */
 	case 'i':		/* deprecated */
@@ -608,6 +608,10 @@ main (int argc, char **argv)
 	  bc_ctl.exit_if_size_exceeded = true;
 	  break;
 
+	case 'o':
+	  open_tty = true;
+	  break;
+
 	case 'p':
 	  query_before_executing = true;
 	  print_command = true;
@@ -633,9 +637,9 @@ main (int argc, char **argv)
 	case PROCESS_SLOT_VAR:
 	  if (strchr (optarg, '='))
 	    {
-	      error (EXIT_FAILURE, 0,
-		     _("option --%s may not be set to a value which includes `='"),
-		     longopts[option_index].name);
+	      die (EXIT_FAILURE, 0,
+		   _("option --%s may not be set to a value which includes `='"),
+		   longopts[option_index].name);
 	    }
 	  slot_var_name = optarg;
 	  if (0 != unsetenv (slot_var_name))
@@ -645,15 +649,14 @@ main (int argc, char **argv)
 		 have the same value for this variable; see
 		 set_slot_var.
 	      */
-	      error (EXIT_FAILURE, errno,
-		     _("failed to unset environment variable %s"),
-		     slot_var_name);
+	      die (EXIT_FAILURE, errno,
+		   _("failed to unset environment variable %s"),
+		   slot_var_name);
 	    }
 	  break;
 
 	default:
-	  usage (stderr);
-	  return 1;
+	  usage (EXIT_FAILURE);
 	}
     }
 
@@ -674,7 +677,7 @@ main (int argc, char **argv)
   assert (BC_INIT_OK == bcstatus);
 
 #ifdef SIGUSR1
-#ifdef SIGUSR2
+# ifdef SIGUSR2
   /* Accept signals to increase or decrease the number of running
      child processes.  Do this as early as possible after setting
      proc_max.  */
@@ -689,7 +692,7 @@ main (int argc, char **argv)
   sigact.sa_flags = 0;
   if (0 != sigaction (SIGUSR2, &sigact, (struct sigaction *)NULL))
 	  error (0, errno, _("Cannot set SIGUSR2 signal handler"));
-#endif /* SIGUSR2 */
+# endif /* SIGUSR2 */
 #endif /* SIGUSR1 */
 
 
@@ -703,9 +706,9 @@ main (int argc, char **argv)
       input_stream = fopen_cloexec_for_read_only (input_file);
       if (NULL == input_stream)
 	{
-	  error (EXIT_FAILURE, errno,
-		 _("Cannot open input file %s"),
-		 quotearg_n_style (0, locale_quoting_style, input_file));
+	  die (EXIT_FAILURE, errno,
+	       _("Cannot open input file %s"),
+	       quotearg_n_style (0, locale_quoting_style, input_file));
 	}
     }
 
@@ -880,8 +883,10 @@ read_line (void)
 	  if (state == QUOTE)
 	    {
 	      exec_if_possible ();
-	      error (EXIT_FAILURE, 0, _("unmatched %s quote; by default quotes are special to xargs unless you use the -0 option"),
-		     quotc == '"' ? _("double") : _("single"));
+	      die (EXIT_FAILURE, 0,
+		   _("unmatched %s quote; by default quotes are special to "
+		     "xargs unless you use the -0 option"),
+		   quotc == '"' ? _("double") : _("single"));
 	    }
 	  if (first && EOF_STR (linebuf))
 	    return -1;
@@ -898,7 +903,7 @@ read_line (void)
 	  if (ISSPACE (c))
 	    continue;
 	  state = NORM;
-	  /* aaahhhh....  */
+	  FALLTHROUGH;  /* aaahhhh....  */
 
 	case NORM:
 	  if (c == '\n')
@@ -973,8 +978,10 @@ read_line (void)
 	  if (c == '\n')
 	    {
 	      exec_if_possible ();
-	      error (EXIT_FAILURE, 0, _("unmatched %s quote; by default quotes are special to xargs unless you use the -0 option"),
-		     quotc == '"' ? _("double") : _("single"));
+	      die (EXIT_FAILURE, 0,
+		   _("unmatched %s quote; by default quotes are special to "
+		     "xargs unless you use the -0 option"),
+		   quotc == '"' ? _("double") : _("single"));
 	    }
 	  if (c == quotc)
 	    {
@@ -1003,7 +1010,7 @@ read_line (void)
       if (p >= endbuf)
         {
 	  exec_if_possible ();
-	  error (EXIT_FAILURE, 0, _("argument line too long"));
+	  die (EXIT_FAILURE, 0, _("argument line too long"));
 	}
       *p++ = c;
 #else
@@ -1068,7 +1075,7 @@ read_string (void)
       if (p >= endbuf)
         {
 	  exec_if_possible ();
-	  error (EXIT_FAILURE, 0, _("argument line too long"));
+	  die (EXIT_FAILURE, 0, _("argument line too long"));
 	}
       *p++ = c;
     }
@@ -1086,8 +1093,10 @@ print_args (bool ask)
 
   for (i = 0; i < bc_state.cmd_argc - 1; i++)
     {
-      if (fprintf (stderr, "%s ", bc_state.cmd_argv[i]) < 0)
-	error (EXIT_FAILURE, errno, _("Failed to write to stderr"));
+      if (fprintf (stderr, "%s ",
+	           quotearg_n_style (0, shell_escape_quoting_style,
+		                     bc_state.cmd_argv[i])) < 0)
+	die (EXIT_FAILURE, errno, _("Failed to write to stderr"));
     }
 
   if (ask)
@@ -1099,18 +1108,18 @@ print_args (bool ask)
 	{
 	  tty_stream = fopen_cloexec_for_read_only ("/dev/tty");
 	  if (!tty_stream)
-	    error (EXIT_FAILURE, errno,
-		   _("failed to open /dev/tty for reading"));
+	    die (EXIT_FAILURE, errno,
+		 _("failed to open /dev/tty for reading"));
 	}
       fputs ("?...", stderr);
       if (fflush (stderr) != 0)
-	error (EXIT_FAILURE, errno, _("Failed to write to stderr"));
+	die (EXIT_FAILURE, errno, _("Failed to write to stderr"));
 
       c = savec = getc (tty_stream);
       while (c != EOF && c != '\n')
 	c = getc (tty_stream);
       if (EOF == c)
-	error (EXIT_FAILURE, errno, _("Failed to read from stdin"));
+	die (EXIT_FAILURE, errno, _("Failed to read from stdin"));
       if (savec == 'y' || savec == 'Y')
 	return true;
     }
@@ -1124,48 +1133,30 @@ print_args (bool ask)
 static void
 set_slot_var (unsigned int n)
 {
-  static const char *fmt = "%u";
-  int size;
-  char *buf;
-
-
-  /* Determine the length of the buffer we need.
-
+  /* Print N into a buffer ... guessing a size which should be safe.
      If the result would be zero-length or have length (not value) >
      INT_MAX, the assumptions we made about how snprintf behaves (or
      what UINT_MAX is) are wrong.  Hence we have a design error (not
      an environmental error).
   */
-  size = snprintf (NULL, 0u, fmt, n);
-  assert (size > 0);
-
+  char buf[20];
+  assert (snprintf (buf, sizeof buf - 1, "%u", n) <= sizeof buf - 1);
 
   /* Failures here are undesirable but not fatal, since we can still
      guarantee that this child does not have a duplicate value of the
      indicated environment variable set (since the parent unset it on
      startup).
+     If the user doesn't want us to set the variable, there is
+     nothing to do.  However, we defer the bail-out until this
+     point in order to get better test coverage.
   */
-  if (NULL == (buf = malloc (size+1)))
+  if (slot_var_name)
     {
-      error (0, errno, _("unable to allocate memory"));
-    }
-  else
-    {
-      snprintf (buf, size+1, fmt, n);
-
-      /* If the user doesn't want us to set the variable, there is
-	 nothing to do.  However, we defer the bail-out until this
-	 point in order to get better test coverage.
-      */
-      if (slot_var_name)
+      if (setenv (slot_var_name, buf, 1) < 0)
 	{
-	  if (setenv (slot_var_name, buf, 1) < 0)
-	    {
-	      error (0, errno,
-		     _("failed to set environment variable %s"), slot_var_name);
-	    }
+	  error (0, errno,
+	         _("failed to set environment variable %s"), slot_var_name);
 	}
-      free (buf);
     }
 }
 
@@ -1176,7 +1167,10 @@ set_slot_var (unsigned int n)
 static void
 prep_child_for_exec (void)
 {
-  complain_about_leaky_fds ();
+  if (fd_leak_check_is_enabled ())
+    {
+      complain_about_leaky_fds ();
+    }
 
   /* The parent will call add_proc to allocate a slot.  We do the same in the
      child to make sure we get the same value.
@@ -1186,21 +1180,37 @@ prep_child_for_exec (void)
   unsigned int slot = add_proc (0);
   set_slot_var (slot);
 
-  if (!keep_stdin)
+  if (!keep_stdin || open_tty)
     {
-      const char inputfile[] = "/dev/null";
-      /* fprintf (stderr, "attaching stdin to /dev/null\n"); */
+      int fd;
+      const char *inputfile = open_tty ? "/dev/tty" : "/dev/null";
 
       close (0);
-      if (open (inputfile, O_RDONLY) < 0)
+      if ((fd = open (inputfile, O_RDONLY)) < 0)
 	{
-	  /* This is not entirely fatal, since
+	  /* Treat a failure to open /dev/tty as fatal.
+	   * The other case is not entirely fatal, since
 	   * executing the child with a closed
 	   * stdin is almost as good as executing it
 	   * with its stdin attached to /dev/null.
 	   */
-	  error (0, errno, "%s",
-		 quotearg_n_style (0, locale_quoting_style, inputfile));
+	  if (open_tty)
+	    {
+	      die (EXIT_FAILURE, errno, "%s",
+		   quotearg_n_style (0, locale_quoting_style, inputfile));
+	    }
+	  else
+	    {
+	      error (0, errno, "%s",
+		     quotearg_n_style (0, locale_quoting_style, inputfile));
+	    }
+	}
+      if (STDIN_FILENO < fd)
+	{
+	  if (dup2(fd, STDIN_FILENO) != 0)
+	    die (EXIT_FAILURE, errno,
+	         _("failed to redirect standard input of the child process"));
+	  close(fd);
 	}
     }
 }
@@ -1251,7 +1261,7 @@ xargs_do_exec (struct buildcmd_control *ctl, void *usercontext, int argc, char *
       wait_for_proc (false, 0u);
 
       if (pipe (fd))
-	error (EXIT_FAILURE, errno, _("could not create pipe before fork"));
+	die (EXIT_FAILURE, errno, _("could not create pipe before fork"));
       fcntl (fd[1], F_SETFD, FD_CLOEXEC);
 
       /* If we run out of processes, wait for a child to return and
@@ -1262,7 +1272,7 @@ xargs_do_exec (struct buildcmd_control *ctl, void *usercontext, int argc, char *
       switch (child)
 	{
 	case -1:
-	  error (EXIT_FAILURE, errno, _("cannot fork"));
+	  die (EXIT_FAILURE, errno, _("cannot fork"));
 
 	case 0:		/* Child.  */
 	  {
@@ -1374,9 +1384,9 @@ xargs_do_exec (struct buildcmd_control *ctl, void *usercontext, int argc, char *
 	  }
 	default:
 	  {
-	    error (EXIT_FAILURE, errno,
-		   _("read returned unexpected value %zu; "
-		     "this is probably a bug, please report it"), r);
+	    die (EXIT_FAILURE, errno,
+		 _("read returned unexpected value %"PRIuMAX"; "
+		   "this is probably a bug, please report it"), r);
 	  }
 	} /* switch on bytes read */
       close (fd[0]);
@@ -1467,8 +1477,8 @@ wait_for_proc (bool all, unsigned int minreap)
 	  while ((pid = waitpid (-1, &status, wflags)) == (pid_t) -1)
 	    {
 	      if (errno != EINTR)
-		error (EXIT_FAILURE, errno,
-		       _("error waiting for child process"));
+		die (EXIT_FAILURE, errno,
+		     _("error waiting for child process"));
 
 	      if (stop_waiting && !all)
 		{
@@ -1611,50 +1621,46 @@ parse_num (char *str, int option, long int min, long int max, int fatal)
   val = strtol (str, &eptr, 10);
   if (eptr == str || *eptr)
     {
-      fprintf (stderr, _("%s: invalid number for -%c option\n"),
-	       program_name, option);
-      usage (stderr);
+      fprintf (stderr, _("%s: invalid number \"%s\" for -%c option\n"),
+	       program_name, str, option);
+      usage (EXIT_FAILURE);
       exit (EXIT_FAILURE);
     }
   else if (val < min)
     {
-      fprintf (stderr, _("%s: value for -%c option should be >= %ld\n"),
-	       program_name, option, min);
+      fprintf (stderr, _("%s: value %s for -%c option should be >= %ld\n"),
+	       program_name, str, option, min);
       if (fatal)
-	{
-	  usage (stderr);
-	  exit (EXIT_FAILURE);
-	}
-      else
-	{
-	  val = min;
-	}
+	usage (EXIT_FAILURE);
+
+      val = min;
     }
   else if (max >= 0 && val > max)
     {
-      fprintf (stderr, _("%s: value for -%c option should be <= %ld\n"),
-	       program_name, option, max);
+      fprintf (stderr, _("%s: value %s for -%c option should be <= %ld\n"),
+	       program_name, str, option, max);
       if (fatal)
-	{
-	  usage (stderr);
-	  exit (EXIT_FAILURE);
-	}
-      else
-	{
-	  val = max;
-	}
+	usage (EXIT_FAILURE);
+
+      val = max;
     }
   return val;
 }
 
 static void
-usage (FILE *stream)
+usage (int status)
 {
-  fprintf (stream,
+  if (status != EXIT_SUCCESS)
+    {
+      fprintf (stderr, _("Try '%s --help' for more information.\n"), program_name);
+      exit (status);
+    }
+
+  fprintf (stdout,
            _("Usage: %s [OPTION]... COMMAND [INITIAL-ARGS]...\n"),
            program_name);
 
-#define HTL(t) fputs (t, stream);
+#define HTL(t) fputs (t, stdout);
 
   HTL (_("Run COMMAND with arguments INITIAL-ARGS and more arguments read from input.\n"
          "\n"));
@@ -1681,6 +1687,9 @@ usage (FILE *stream)
   HTL (_("  -l[MAX-LINES]                similar to -L but defaults to at most one non-\n"
          "                                 blank input line if MAX-LINES is not specified\n"));
   HTL (_("  -n, --max-args=MAX-ARGS      use at most MAX-ARGS arguments per command line\n"));
+  HTL (_("  -o, --open-tty               Reopen stdin as /dev/tty in the child process\n"
+         "                                 before executing the command; useful to run an\n"
+         "                                 interactive application.\n"));
   HTL (_("  -P, --max-procs=MAX-PROCS    run at most MAX-PROCS processes at a time\n"));
   HTL (_("  -p, --interactive            prompt before running commands\n"));
   HTL (_("      --process-slot-var=VAR   set environment variable VAR in child processes\n"));
@@ -1693,7 +1702,7 @@ usage (FILE *stream)
   HTL (_("  -x, --exit                   exit if the size (see -s) is exceeded\n"));
 
   HTL (_("      --help                   display this help and exit\n"));
-  HTL (_("      --version                output version information and exit\n"));
-  HTL (_("\n"
-         "Report bugs to <bug-findutils@gnu.org>.\n"));
+  HTL (_("      --version                output version information and exit\n\n"));
+  explain_how_to_report_bugs (stdout, program_name);
+  exit (status);
 }

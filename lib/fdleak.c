@@ -1,5 +1,5 @@
 /* fdleak.c -- detect file descriptor leaks
-   Copyright (C) 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2010-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,13 +12,14 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 /* config.h must be included first. */
 #include <config.h>
 
 /* system headers. */
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -36,25 +37,13 @@
 #include "dirent-safer.h"
 #include "error.h"
 #include "fcntl--.h"
-#include "gettext.h"
 
 /* find headers. */
+#include "system.h"
 #include "extendbuf.h"
 #include "fdleak.h"
 #include "safe-atoi.h"
 
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* See locate.c for explanation as to why not use (String) */
-# define N_(String) String
-#endif
 
 /* In order to detect FD leaks, we take a snapshot of the open
  * file descriptors which are not FD_CLOEXEC when the program starts.
@@ -83,11 +72,23 @@ get_proc_max_fd (void)
       int good = 0;
       struct dirent *dent;
 
-      while ((dent=readdir (dir)) != NULL)
-	{
+      while (1)
+        {
+	  errno = 0;
+	  dent = readdir (dir);
+	  if (NULL == dent)
+	    {
+	      if (errno)
+		{
+		  error (0, errno, "%s", quotearg_n_style (0, locale_quoting_style, path));
+		  good = 0;
+		}
+	      break;
+	    }
+
 	  if (dent->d_name[0] != '.'
-	      || (dent->d_name[0] != 0
-		  && dent->d_name[1] != 0 && dent->d_name[1] != '.'))
+	      || (dent->d_name[1] != 0
+		  && (dent->d_name[1] != '.' || dent->d_name[2] != 0)))
 	    {
 	      const int fd = safe_atoi (dent->d_name, literal_quoting_style);
 	      if (fd > maxfd)
@@ -108,7 +109,6 @@ get_proc_max_fd (void)
 static int
 get_max_fd (void)
 {
-  struct rlimit fd_limit;
   long open_max;
 
   open_max = get_proc_max_fd ();
@@ -121,13 +121,16 @@ get_max_fd (void)
 
   /* We assume if RLIMIT_NOFILE is defined, all the related macros are, too. */
 #if defined HAVE_GETRLIMIT && defined RLIMIT_NOFILE
-  if (0 == getrlimit (RLIMIT_NOFILE, &fd_limit))
-    {
-      if (fd_limit.rlim_cur == RLIM_INFINITY)
-	return open_max;
-      else
-	return (int) fd_limit.rlim_cur;
-    }
+  {
+    struct rlimit fd_limit;
+    if (0 == getrlimit (RLIMIT_NOFILE, &fd_limit))
+      {
+	if (fd_limit.rlim_cur == RLIM_INFINITY)
+	  return open_max;
+	else
+	  return (int) fd_limit.rlim_cur;
+      }
+  }
 #endif
   /* cannot determine the limit's value */
   return open_max;
@@ -363,6 +366,17 @@ forget_non_cloexec_fds (void)
   num_cloexec_fds = 0;
 }
 
+/* Return nonzero if file descriptor leak-checking is enabled.
+ */
+bool
+fd_leak_check_is_enabled (void)
+{
+  if (getenv ("GNU_FINDUTILS_FD_LEAK_CHECK"))
+    return true;
+  else
+    return false;
+
+}
 
 void
 complain_about_leaky_fds (void)

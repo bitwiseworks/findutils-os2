@@ -1,6 +1,5 @@
 /* frcode -- front-compress a sorted list
-   Copyright (C) 1994, 2005, 2006, 2007, 2010, 2011 Free Software
-   Foundation, Inc.
+   Copyright (C) 1994-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* Usage: frcode < sorted-list > compressed-list
@@ -80,34 +79,16 @@
 /* gnulib headers. */
 #include "closeout.h"
 #include "error.h"
-#include "gettext.h"
 #include "progname.h"
 #include "xalloc.h"
 
 /* find headers. */
+#include "system.h"
+#include "bugreports.h"
+#include "die.h"
 #include "findutils-version.h"
+#include "gcc-function-attributes.h"
 #include "locatedb.h"
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#define textdomain(Domain)
-#define bindtextdomain(Package, Directory)
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* We used to use (String) instead of just String, but apparently ISO C
- * doesn't allow this (at least, that's what HP said when someone reported
- * this as a compiler bug).  This is HP case number 1205608192.  See
- * also http://gcc.gnu.org/bugzilla/show_bug.cgi?id=11250 (which references
- * ANSI 3.5.7p14-15).  The Intel icc compiler also rejects constructs
- * like: static const char buf[] = ("string");
- */
-# define N_(String) String
-#endif
 
 
 /* Write out a 16-bit int, high byte first (network byte order).
@@ -153,13 +134,21 @@ static struct option const longopts[] =
 
 extern char *version_string;
 
-static void
-usage (FILE *stream)
+static void _GL_ATTRIBUTE_NORETURN
+usage (int status)
 {
-  fprintf (stream,
+  if (status != EXIT_SUCCESS)
+    {
+      fprintf (stderr, _("Try '%s --help' for more information.\n"), program_name);
+      exit (status);
+    }
+
+  fprintf (stdout,
 	   _("Usage: %s [-0 | --null] [--version] [--help]\n"),
 	   program_name);
-  fputs (_("\nReport bugs to <bug-findutils@gnu.org>.\n"), stream);
+
+  explain_how_to_report_bugs (stdout, program_name);
+  exit (status);
 }
 
 static long
@@ -168,32 +157,32 @@ get_seclevel (char *s)
   long result;
   char *p;
 
-  /* Reset errno in oreder to be able to distinguish LONG_MAX/LONG_MIN
-   * from values whichare actually out of range
+  /* Reset errno in order to be able to distinguish LONG_MAX/LONG_MIN
+   * from values which are actually out of range.
    */
   errno = 0;
 
   result = strtol (s, &p, 10);
   if ((0==result) && (p == optarg))
     {
-      error (EXIT_FAILURE, 0,
-	     _("You need to specify a security level as a decimal integer."));
+      die (EXIT_FAILURE, 0,
+	   _("You need to specify a security level as a decimal integer."));
       /*NOTREACHED*/
       return -1;
     }
   else if ((LONG_MIN==result || LONG_MAX==result) && errno)
 
     {
-      error (EXIT_FAILURE, 0,
-	     _("Security level %s is outside the convertible range."), s);
+      die (EXIT_FAILURE, 0,
+	   _("Security level %s is outside the convertible range."), s);
       /*NOTREACHED*/
       return -1;
     }
   else if (*p)
     {
       /* Some suffix exists */
-      error (EXIT_FAILURE, 0,
-	     _("Security level %s has unexpected suffix %s."), s, p);
+      die (EXIT_FAILURE, 0,
+	   _("Security level %s has unexpected suffix %s."), s, p);
       /*NOTREACHED*/
       return -1;
     }
@@ -207,7 +196,7 @@ static void
 outerr (void)
 {
   /* Issue the same error message as closeout () would. */
-  error (EXIT_FAILURE, errno, _("write error"));
+  die (EXIT_FAILURE, errno, _("write error"));
 }
 
 int
@@ -230,7 +219,7 @@ main (int argc, char **argv)
 
   if (atexit (close_stdout))
     {
-      error (EXIT_FAILURE, errno, _("The atexit library function failed"));
+      die (EXIT_FAILURE, errno, _("The atexit library function failed"));
     }
 
   pathsize = oldpathsize = 1026; /* Increased as necessary by getline.  */
@@ -253,30 +242,28 @@ main (int argc, char **argv)
 	slocate_seclevel = get_seclevel (optarg);
 	if (slocate_seclevel < 0 || slocate_seclevel > 1)
 	  {
-	    error (EXIT_FAILURE, 0,
-		   _("slocate security level %ld is unsupported."),
-		   slocate_seclevel);
+	    die (EXIT_FAILURE, 0,
+		 _("slocate security level %ld is unsupported."),
+		 slocate_seclevel);
 	  }
 	break;
 
       case 'h':
-	usage (stdout);
-	return 0;
+	usage (EXIT_SUCCESS);
 
       case 'v':
 	display_findutils_version ("frcode");
 	return 0;
 
       default:
-	usage (stderr);
-	return 1;
+	usage (EXIT_FAILURE);
       }
 
   /* We expect to have no arguments. */
   if (optind != argc)
     {
-      usage (stderr);
-      return 1;
+      error (0, 0, _("no argument expected."));
+      usage (EXIT_FAILURE);
     }
 
 
@@ -292,14 +279,21 @@ main (int argc, char **argv)
       if (fwrite (LOCATEDB_MAGIC, 1, sizeof (LOCATEDB_MAGIC), stdout)
 	  != sizeof (LOCATEDB_MAGIC))
 	{
-	  error (EXIT_FAILURE, errno, _("Failed to write to standard output"));
+	  die (EXIT_FAILURE, errno, _("Failed to write to standard output"));
 	}
     }
 
 
   while ((line_len = getdelim (&path, &pathsize, delimiter, stdin)) > 0)
     {
-      path[line_len - 1] = '\0'; /* FIXME temporary: nuke the newline.  */
+      if (path[line_len - 1] != delimiter)
+	{
+	  error (0, 0, _("The input file should end with the delimiter"));
+	}
+      else
+	{
+	  path[line_len - 1] = '\0'; /* FIXME temporary: nuke the delimiter.  */
+	}
 
       count = prefix_length (oldpath, path);
       diffcount = count - oldcount;

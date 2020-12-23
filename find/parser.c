@@ -1,7 +1,5 @@
 /* parser.c -- convert the command line args into an expression tree.
-   Copyright (C) 1990, 1991, 1992, 1993, 1994, 2000, 2001, 2003, 2004,
-   2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-   Inc.
+   Copyright (C) 1990-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -14,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* config.h must always come first. */
@@ -37,11 +35,11 @@
 #include "error.h"
 #include "fnmatch.h"
 #include "fts_.h"
-#include "gettext.h"
 #include "modechange.h"
 #include "mountlist.h"
 #include "parse-datetime.h"
 #include "print.h"
+#include "progname.h"
 #include "quotearg.h"
 #include "regextype.h"
 #include "safe-atoi.h"
@@ -52,33 +50,29 @@
 #include "xstrtod.h"
 #include "xstrtol.h"
 
+/* At the moment, we include this after gnulib headers, since it uses
+   some of the same names for function attribute macros as gnulib does,
+   since I plan to make gcc-sttrigbutes a gnulib module.  However, for
+   now, I haven't made the wholesale edits to gnulib that this would
+   require.   Including this file last simply minimises the number of
+   compiler warnings about macro redefinition (in gnulib headers).
+*/
+#include "gcc-function-attributes.h"
+
 /* find headers. */
 #include "buildcmd.h"
 #include "defs.h"
+#include "die.h"
 #include "fdleak.h"
 #include "findutils-version.h"
+#include "system.h"
 
-
-
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* See locate.c for explanation as to why not use (String) */
-# define N_(String) String
-#endif
 
 #ifndef HAVE_ENDGRENT
-#define endgrent ()
+# define endgrent ()
 #endif
 #ifndef HAVE_ENDPWENT
-#define endpwent ()
+# define endpwent ()
 #endif
 
 static bool parse_accesscheck   (const struct parser_table*, char *argv[], int *arg_ptr);
@@ -104,7 +98,6 @@ static bool parse_fprint0       (const struct parser_table*, char *argv[], int *
 static bool parse_fstype        (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_gid           (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_group         (const struct parser_table*, char *argv[], int *arg_ptr);
-static bool parse_help          (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_ilname        (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_iname         (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_inum          (const struct parser_table*, char *argv[], int *arg_ptr);
@@ -143,7 +136,6 @@ static bool parse_type          (const struct parser_table*, char *argv[], int *
 static bool parse_uid           (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_used          (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_user          (const struct parser_table*, char *argv[], int *arg_ptr);
-static bool parse_version       (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_wholename     (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_xdev          (const struct parser_table*, char *argv[], int *arg_ptr);
 static bool parse_ignore_race   (const struct parser_table*, char *argv[], int *arg_ptr);
@@ -156,6 +148,10 @@ static bool parse_context       (const struct parser_table*, char *argv[], int *
 static bool parse_show_control_chars (const struct parser_table*, char *argv[], int *arg_ptr);
 #endif
 
+static bool parse_help (const struct parser_table* entry, char **argv, int *arg_ptr)
+  _GL_ATTRIBUTE_NORETURN;
+static bool parse_version       (const struct parser_table*, char *argv[], int *arg_ptr)
+  _GL_ATTRIBUTE_NORETURN;
 
 
 static bool insert_type (char **argv, int *arg_ptr,
@@ -284,7 +280,7 @@ static struct parser_table const parse_table[] =
   PARSE_PUNCTUATION("or",                    or),	     /* GNU */
   PARSE_ACTION     ("ok",                    ok), /* POSIX */
   PARSE_ACTION     ("okdir",                 okdir), /* GNU (-execdir is BSD) */
-  PARSE_TEST       ("path",                  path), /* GNU, HP-UX, RMS prefers wholename, but anyway soon POSIX */
+  PARSE_TEST       ("path",                  path), /* POSIX */
   PARSE_TEST       ("perm",                  perm), /* POSIX */
   PARSE_ACTION     ("print",                 print), /* POSIX */
   PARSE_ACTION     ("print0",                print0),	     /* GNU */
@@ -303,7 +299,7 @@ static struct parser_table const parse_table[] =
   PARSE_TEST       ("uid",                   uid),	     /* GNU */
   PARSE_TEST       ("used",                  used),	     /* GNU */
   PARSE_TEST       ("user",                  user), /* POSIX */
-  PARSE_TEST_NP    ("wholename",             wholename), /* GNU, replaced -path, but anyway -path will soon be in POSIX */
+  PARSE_TEST_NP    ("wholename",             wholename), /* GNU, replaced -path, but now -path is standardized since POSIX 2008 */
   {ARG_TEST,       "writable",               parse_accesscheck, pred_writable}, /* GNU, 4.3.0+ */
   PARSE_OPTION     ("xdev",                  xdev), /* POSIX */
   PARSE_TEST       ("xtype",                 xtype),	     /* GNU */
@@ -319,7 +315,8 @@ static struct parser_table const parse_table[] =
    */
   {ARG_TEST, "false",                 parse_false,   pred_false}, /* GNU */
   {ARG_TEST, "true",                  parse_true,    pred_true }, /* GNU */
-  {ARG_NOOP, "noop",                  NULL,          pred_true }, /* GNU, internal use only */
+  /* Internal pseudo-option, therefore 3 minus: ---noop.  */
+  {ARG_NOOP, "--noop",                NULL,          pred_true }, /* GNU, internal use only */
 
   /* Various other cases that don't fit neatly into our macro scheme. */
   {ARG_TEST, "help",                  parse_help,    NULL},       /* GNU */
@@ -344,10 +341,11 @@ fallback_getfilecon (int fd, const char *name, security_context_t *p,
     {
       case ENOENT:
       case ENOTDIR:
-#ifdef DEBUG_STAT
-	fprintf (stderr, "fallback_getfilecon(): getfilecon(%s) failed; falling "
-			"back on lgetfilecon()\n", name);
-#endif
+	if (options.debug_options & DebugStat)
+	  {
+	    fprintf (stderr, "fallback_getfilecon(): getfilecon(%s) failed; falling "
+		     "back on lgetfilecon()\n", name);
+	  }
 	return lgetfileconat (fd, name, p);
 
       case EACCES:
@@ -448,11 +446,11 @@ check_option_combinations (const struct predicate *p)
       if (!options.explicit_depth)
 	{
 	  /* This fixes Savannah bug #20865. */
-	  error (EXIT_FAILURE, 0,
-		 _("The -delete action automatically turns on -depth, "
-		   "but -prune does nothing when -depth is in effect.  "
-		   "If you want to carry on anyway, just explicitly use "
-		   "the -depth option."));
+	  die (EXIT_FAILURE, 0,
+	       _("The -delete action automatically turns on -depth, "
+		 "but -prune does nothing when -depth is in effect.  "
+		 "If you want to carry on anyway, just explicitly use "
+		 "the -depth option."));
 	}
     }
 }
@@ -573,7 +571,7 @@ should_issue_warnings (void)
 }
 
 
-/* Check that it is legal to fid the given primary in its
+/* Check that it is legal to find the given primary in its
  * position and return it.
  */
 static const struct parser_table*
@@ -594,6 +592,9 @@ found_parser (const char *original_arg, const struct parser_table *entry)
    */
   if (entry->type != ARG_POSITIONAL_OPTION)
     {
+      if (entry->type == ARG_NOOP)
+        return NULL;  /* internal use only, trap -noop here.  */
+
       /* Something other than -follow/-daystart.
        * If this is an option, check if it followed
        * a non-option and if so, issue a warning.
@@ -605,12 +606,11 @@ found_parser (const char *original_arg, const struct parser_table *entry)
 	    {
 	      /* option which follows a non-option */
 	      error (0, 0,
-		     _("warning: you have specified the %s "
-		       "option after a non-option argument %s, "
-		       "but options are not positional (%s affects "
-		       "tests specified before it as well as those "
-		       "specified after it).  Please specify options "
-		       "before other arguments.\n"),
+		     _("warning: you have specified the global option %s "
+		       "after the argument %s, but global options are not "
+		       "positional, i.e., %s affects tests specified before it "
+		       "as well as those specified after it.  "
+		       "Please specify global options before other arguments."),
 		     original_arg,
 		     first_nonoption_arg,
 		     original_arg);
@@ -666,17 +666,17 @@ find_parser (const char *search_name)
 static float
 estimate_file_age_success_rate (float num_days)
 {
-  if (num_days < 0.1)
+  if (num_days < 0.1f)
     {
       /* Assume 1% of files have timestamps in the future */
       return 0.01f;
     }
-  else if (num_days < 1)
+  else if (num_days < 1.0f)
     {
       /* Assume 30% of files have timestamps today */
       return 0.3f;
     }
-  else if (num_days > 100)
+  else if (num_days > 100.0f)
     {
       /* Assume 30% of files are very old */
       return 0.3f;
@@ -737,14 +737,11 @@ collect_arg_stat_info (char **argv, int *arg_ptr, struct stat *p,
   if (collect_arg (argv, arg_ptr, &filename))
     {
       *argument = filename;
-      if (0 == (options.xstat)(filename, p))
-	{
-	  return true;
-	}
-      else
+      if (0 != (options.xstat)(filename, p))
 	{
 	  fatal_target_file_error (errno, filename);
 	}
+      return true;
     }
   else
     {
@@ -1070,36 +1067,6 @@ static float estimate_fstype_success_rate (const char *fsname)
 
 
 static bool
-is_used_fs_type(const char *name)
-{
-  if (0 == strcmp("afs", name))
-    {
-      /* I guess AFS may not appear in /etc/mtab (or equivalent) but still be in use,
-	 so assume we always need to check for AFS.  */
-      return true;
-    }
-  else
-    {
-      const struct mount_entry *entries = read_file_system_list(false);
-      if (entries)
-	{
-	  const struct mount_entry *entry;
-	  for (entry = entries; entry; entry = entry->me_next)
-	    {
-	      if (0 == strcmp(name, entry->me_type))
-		return true;
-	    }
-	}
-      else
-	{
-	  return true;
-	}
-    }
-  return false;
-}
-
-
-static bool
 parse_fstype (const struct parser_table* entry, char **argv, int *arg_ptr)
 {
   const char *typename;
@@ -1184,12 +1151,12 @@ parse_group (const struct parser_table* entry, char **argv, int *arg_ptr)
 	      else
 		{
 		  /* XXX: no test in test suite for this */
-		  error (EXIT_FAILURE, 0,
-			 _("%s is not the name of an existing group and"
-			   " it does not look like a numeric group ID "
-			   "because it has the unexpected suffix %s"),
-			 quotearg_n_style (0, options.err_quoting_style, groupname),
-			 quotearg_n_style (1, options.err_quoting_style, groupname+gid_len));
+		  die (EXIT_FAILURE, 0,
+		       _("%s is not the name of an existing group and"
+			 " it does not look like a numeric group ID "
+			 "because it has the unexpected suffix %s"),
+		       quotearg_n_style (0, options.err_quoting_style, groupname),
+		       quotearg_n_style (1, options.err_quoting_style, groupname+gid_len));
 		  *arg_ptr = saved_argc; /* don't consume the invalid argument. */
 		  return false;
 		}
@@ -1199,14 +1166,14 @@ parse_group (const struct parser_table* entry, char **argv, int *arg_ptr)
 	      if (*groupname)
 		{
 		  /* XXX: no test in test suite for this */
-		  error (EXIT_FAILURE, 0,
-			 _("%s is not the name of an existing group"),
-			 quotearg_n_style (0, options.err_quoting_style, groupname));
+		  die (EXIT_FAILURE, 0,
+		       _("%s is not the name of an existing group"),
+		       quotearg_n_style (0, options.err_quoting_style, groupname));
 		}
 	      else
 		{
-		  error (EXIT_FAILURE, 0,
-			 _("argument to -group is empty, but should be a group name"));
+		  die (EXIT_FAILURE, 0,
+		       _("argument to -group is empty, but should be a group name"));
 		}
 	      *arg_ptr = saved_argc; /* don't consume the invalid argument. */
 	      return false;
@@ -1227,41 +1194,7 @@ parse_help (const struct parser_table* entry, char **argv, int *arg_ptr)
   (void) argv;
   (void) arg_ptr;
 
-  usage (stdout, 0, NULL);
-  puts (_("\n\
-default path is the current directory; default expression is -print\n\
-expression may consist of: operators, options, tests, and actions:\n"));
-  puts (_("\
-operators (decreasing precedence; -and is implicit where no others are given):\n\
-      ( EXPR )   ! EXPR   -not EXPR   EXPR1 -a EXPR2   EXPR1 -and EXPR2\n\
-      EXPR1 -o EXPR2   EXPR1 -or EXPR2   EXPR1 , EXPR2\n"));
-  puts (_("\
-positional options (always true): -daystart -follow -regextype\n\n\
-normal options (always true, specified before other expressions):\n\
-      -depth --help -maxdepth LEVELS -mindepth LEVELS -mount -noleaf\n\
-      --version -xdev -ignore_readdir_race -noignore_readdir_race\n"));
-  puts (_("\
-tests (N can be +N or -N or N): -amin N -anewer FILE -atime N -cmin N\n\
-      -cnewer FILE -ctime N -empty -false -fstype TYPE -gid N -group NAME\n\
-      -ilname PATTERN -iname PATTERN -inum N -iwholename PATTERN -iregex PATTERN\n\
-      -links N -lname PATTERN -mmin N -mtime N -name PATTERN -newer FILE"));
-  puts (_("\
-      -nouser -nogroup -path PATTERN -perm [-/]MODE -regex PATTERN\n\
-      -readable -writable -executable\n\
-      -wholename PATTERN -size N[bcwkMG] -true -type [bcdpflsD] -uid N\n\
-      -used N -user NAME -xtype [bcdpfls]"));
-  puts (_("\
-      -context CONTEXT\n"));
-  puts (_("\n\
-actions: -delete -print0 -printf FORMAT -fprintf FILE FORMAT -print \n\
-      -fprint0 FILE -fprint FILE -ls -fls FILE -prune -quit\n\
-      -exec COMMAND ; -exec COMMAND {} + -ok COMMAND ;\n\
-      -execdir COMMAND ; -execdir COMMAND {} + -okdir COMMAND ;\n\
-"));
-  puts (_("Report (and track progress on fixing) bugs via the findutils bug-reporting\n\
-page at http://savannah.gnu.org/ or, if you have no web access, by sending\n\
-email to <bug-findutils@gnu.org>."));
-  exit (EXIT_SUCCESS);
+  usage (EXIT_SUCCESS);
 }
 
 static float
@@ -1289,7 +1222,7 @@ parse_ilname (const struct parser_table* entry, char **argv, int *arg_ptr)
       /* Use the generic glob pattern estimator to figure out how many
        * links will match, but bear in mind that most files won't be links.
        */
-      our_pred->est_success_rate = 0.1 * estimate_pattern_match_rate (name, 0);
+      our_pred->est_success_rate = 0.1f * estimate_pattern_match_rate (name, 0);
       return true;
     }
   else
@@ -1312,8 +1245,8 @@ fnmatch_sanitycheck (void)
 	  || 0 == fnmatch ("Foo", "foo", 0)
 	  || 0 != fnmatch ("Foo", "foo", FNM_CASEFOLD))
 	{
-	  error (EXIT_FAILURE, 0,
-		 _("sanity check of the fnmatch() library function failed."));
+	  die (EXIT_FAILURE, 0,
+	       _("sanity check of the fnmatch() library function failed."));
 	  return false;
 	}
       checked = true;
@@ -1323,20 +1256,18 @@ fnmatch_sanitycheck (void)
 
 
 static bool
-check_name_arg (const char *pred, const char *arg)
+check_name_arg (const char *pred, const char *alt, const char *arg)
 {
   if (should_issue_warnings () && strchr (arg, '/'))
     {
-      error (0, 0,_("warning: Unix filenames usually don't contain slashes "
-		    "(though pathnames do).  That means that '%s %s' will "
-		    "probably evaluate to false all the time on this system.  "
-		    "You might find the '-wholename' test more useful, or "
-		    "perhaps '-samefile'.  Alternatively, if you are using "
-		    "GNU grep, you could "
-		    "use 'find ... -print0 | grep -FzZ %s'."),
-	    pred,
-	    safely_quote_err_filename (0, arg),
-	    safely_quote_err_filename (1, arg));
+      error (0, 0,
+	     _("warning: %s matches against basenames only, "
+	       "but the given pattern contains a directory separator (%s), "
+	       "thus the expression will evaluate to false all the time.  "
+	       "Did you mean %s?"),
+	    safely_quote_err_filename (0, pred),
+	    safely_quote_err_filename (1, "/"),
+	    safely_quote_err_filename (2, alt));
     }
   return true;			/* allow it anyway */
 }
@@ -1350,7 +1281,7 @@ parse_iname (const struct parser_table* entry, char **argv, int *arg_ptr)
   fnmatch_sanitycheck ();
   if (collect_arg (argv, arg_ptr, &name))
     {
-      if (check_name_arg ("-iname", name))
+      if (check_name_arg ("-iname", "-iwholename", name))
 	{
 	  struct predicate *our_pred = insert_primary (entry, name);
 	  our_pred->need_stat = our_pred->need_type = false;
@@ -1420,7 +1351,7 @@ parse_lname (const struct parser_table* entry, char **argv, int *arg_ptr)
     {
       struct predicate *our_pred = insert_primary (entry, name);
       our_pred->args.str = name;
-      our_pred->est_success_rate = 0.1 * estimate_pattern_match_rate (name, 0);
+      our_pred->est_success_rate = 0.1f * estimate_pattern_match_rate (name, 0);
       return true;
     }
   return false;
@@ -1452,10 +1383,10 @@ insert_depthspec (const struct parser_table* entry, char **argv, int *arg_ptr,
 	      return parse_noop (entry, argv, arg_ptr);
 	    }
 	}
-      error (EXIT_FAILURE, 0,
-	     _("Expected a positive decimal integer argument to %s, but got %s"),
-	     predicate,
-	     quotearg_n_style (0, options.err_quoting_style, depthstr));
+      die (EXIT_FAILURE, 0,
+	   _("Expected a positive decimal integer argument to %s, but got %s"),
+	   predicate,
+	   quotearg_n_style (0, options.err_quoting_style, depthstr));
       /* NOTREACHED */
       return false;
     }
@@ -1537,7 +1468,7 @@ parse_name (const struct parser_table* entry, char **argv, int *arg_ptr)
   if (collect_arg (argv, arg_ptr, &name))
     {
       fnmatch_sanitycheck ();
-      if (check_name_arg ("-name", name))
+      if (check_name_arg ("-name", "-wholename", name))
 	{
 	  struct predicate *our_pred = insert_primary (entry, name);
 	  our_pred->need_stat = our_pred->need_type = false;
@@ -1639,8 +1570,8 @@ parse_newerXY (const struct parser_table* entry, char **argv, int *arg_ptr)
 	   */
 	  if (argv[1+*arg_ptr] == NULL)
 	    {
-	      error (EXIT_FAILURE, 0, _("The %s test needs an argument"),
-		     quotearg_n_style (0, options.err_quoting_style, argv[*arg_ptr]));
+	      die (EXIT_FAILURE, 0, _("The %s test needs an argument"),
+		   quotearg_n_style (0, options.err_quoting_style, argv[*arg_ptr]));
 	    }
 	  else
 	    {
@@ -1675,9 +1606,9 @@ parse_newerXY (const struct parser_table* entry, char **argv, int *arg_ptr)
 				   argv[*arg_ptr],
 				   &options.start_time))
 		{
-		  error (EXIT_FAILURE, 0,
-			 _("I cannot figure out how to interpret %s as a date or time"),
-			 quotearg_n_style (0, options.err_quoting_style, argv[*arg_ptr]));
+		  die (EXIT_FAILURE, 0,
+		       _("I cannot figure out how to interpret %s as a date or time"),
+		       quotearg_n_style (0, options.err_quoting_style, argv[*arg_ptr]));
 		}
 	    }
 	  else
@@ -1692,9 +1623,9 @@ parse_newerXY (const struct parser_table* entry, char **argv, int *arg_ptr)
 	      if (!get_stat_Ytime (&stat_newer, y, &our_pred->args.reftime.ts))
 		{
 		  /* We cannot extract a timestamp from the struct stat. */
-		  error (EXIT_FAILURE, 0,
-			 _("Cannot obtain birth time of file %s"),
-			 safely_quote_err_filename (0, argv[*arg_ptr]));
+		  die (EXIT_FAILURE, 0,
+		       _("Cannot obtain birth time of file %s"),
+		       safely_quote_err_filename (0, argv[*arg_ptr]));
 		}
 	    }
 	  our_pred->args.reftime.kind = COMP_GT;
@@ -1853,9 +1784,7 @@ insert_path_check (const struct parser_table* entry, char **argv, int *arg_ptr,
  * "file name" to "path name".
  *
  * We do not issue a warning that this usage is deprecated
- * since
- * (a) HPUX find supports this predicate also and
- * (b) it will soon be in POSIX anyway.
+ * since it is standardized since POSIX 2008.
  */
 static bool
 parse_path (const struct parser_table* entry, char **argv, int *arg_ptr)
@@ -1934,8 +1863,8 @@ parse_perm (const struct parser_table* entry, char **argv, int *arg_ptr)
      and it would be confusing if 'find' continued to support it.  */
   if (NULL == change
       || (perm_expr[0] == '+' && '0' <= perm_expr[1] && perm_expr[1] < '8'))
-    error (EXIT_FAILURE, 0, _("invalid mode %s"),
-	   quotearg_n_style (0, options.err_quoting_style, perm_expr));
+    die (EXIT_FAILURE, 0, _("invalid mode %s"),
+	 quotearg_n_style (0, options.err_quoting_style, perm_expr));
   perm_val[0] = mode_adjust (0, false, 0, change, NULL);
   perm_val[1] = mode_adjust (0, true, 0, change, NULL);
   free (change);
@@ -2124,9 +2053,9 @@ insert_regex (char **argv,
 
       error_message = re_compile_pattern (rx, strlen (rx), re);
       if (error_message)
-        error (EXIT_FAILURE, 0,
-	       _("failed to compile regular expression '%s': %s"),
-	       rx, error_message);
+        die (EXIT_FAILURE, 0,
+	     _("failed to compile regular expression '%s': %s"),
+	     rx, error_message);
       our_pred->est_success_rate = estimate_pattern_match_rate (rx, 1);
       return true;
     }
@@ -2154,7 +2083,7 @@ parse_size (const struct parser_table* entry, char **argv, int *arg_ptr)
 
   len = strlen (arg);
   if (len == 0)
-    error (EXIT_FAILURE, 0, _("invalid null argument to -size"));
+    die (EXIT_FAILURE, 0, _("invalid null argument to -size"));
 
   suffix = arg[len - 1];
   switch (suffix)
@@ -2174,12 +2103,12 @@ parse_size (const struct parser_table* entry, char **argv, int *arg_ptr)
       arg[len - 1] = '\0';
       break;
 
-    case 'M':			/* Megabytes */
+    case 'M':			/* Mebibytes */
       blksize = 1024*1024;
       arg[len - 1] = '\0';
       break;
 
-    case 'G':			/* Gigabytes */
+    case 'G':			/* Gibibytes */
       blksize = 1024*1024*1024;
       arg[len - 1] = '\0';
       break;
@@ -2203,19 +2132,19 @@ parse_size (const struct parser_table* entry, char **argv, int *arg_ptr)
       break;
 
     default:
-      error (EXIT_FAILURE, 0,
-	     _("invalid -size type `%c'"), argv[*arg_ptr][len - 1]);
+      die (EXIT_FAILURE, 0,
+	   _("invalid -size type `%c'"), argv[*arg_ptr][len - 1]);
     }
-  /* TODO: accept fractional megabytes etc. ? */
+  /* TODO: accept fractional mebibytes etc. ? */
   if (!get_num (arg, &num, &c_type))
     {
       char tail[2];
       tail[0] = suffix;
       tail[1] = 0;
 
-      error (EXIT_FAILURE, 0,
-	     _("Invalid argument `%s%s' to -size"),
-	     arg, tail);
+      die (EXIT_FAILURE, 0,
+	   _("Invalid argument `%s%s' to -size"),
+	   arg, tail);
       return false;
     }
   our_pred = insert_primary (entry, arg);
@@ -2402,7 +2331,7 @@ parse_show_control_chars (const struct parser_table* entry,
 
   if ((argv == NULL) || (argv[*arg_ptr] == NULL))
     {
-      error (EXIT_FAILURE, errno, "%s", errmsg);
+      die (EXIT_FAILURE, errno, "%s", errmsg);
       return false;
     }
   else
@@ -2419,7 +2348,7 @@ parse_show_control_chars (const struct parser_table* entry,
 	}
       else
 	{
-	  error (EXIT_FAILURE, errno, "%s", errmsg);
+	  die (EXIT_FAILURE, errno, "%s", errmsg);
 	  return false;
 	}
       (*arg_ptr)++;		/* consume the argument. */
@@ -2509,8 +2438,8 @@ parse_used (const struct parser_table* entry, char **argv, int *arg_ptr)
 	}
       else
 	{
-	  error (EXIT_FAILURE, 0,
-		 _("Invalid argument %s to -used"), offset_str);
+	  die (EXIT_FAILURE, 0,
+	       _("Invalid argument %s to -used"), offset_str);
 	  /*NOTREACHED*/
 	  return false;
 	}
@@ -2550,15 +2479,15 @@ parse_user (const struct parser_table* entry, char **argv, int *arg_ptr)
 	       * not as helpful). */
 	      if (username[0])
 		{
-		  error (EXIT_FAILURE, 0,
-			 _("%s is not the name of a known user"),
-			 quotearg_n_style (0, options.err_quoting_style,
-					   username));
+		  die (EXIT_FAILURE, 0,
+		       _("%s is not the name of a known user"),
+		       quotearg_n_style (0, options.err_quoting_style,
+					 username));
 		}
 	      else
 		{
-		  error (EXIT_FAILURE, 0,
-			 _("The argument to -user should not be empty"));
+		  die (EXIT_FAILURE, 0,
+		       _("The argument to -user should not be empty"));
 		}
 	      /*NOTREACHED*/
 	      return false;
@@ -2587,14 +2516,6 @@ parse_version (const struct parser_table* entry, char **argv, int *arg_ptr)
 
 #if CACHE_IDS
   printf ("CACHE_IDS(ignored) ");
-  has_features = true;
-#endif
-#if DEBUG
-  printf ("DEBUG ");
-  has_features = true;
-#endif
-#if DEBUG_STAT
-  printf ("DEBUG_STAT ");
   has_features = true;
 #endif
 #if defined HAVE_STRUCT_DIRENT_D_TYPE
@@ -2659,8 +2580,8 @@ parse_context (const struct parser_table* entry, char **argv, int *arg_ptr)
 
   if (is_selinux_enabled () <= 0)
     {
-      error (EXIT_FAILURE, 0,
-	     _("invalid predicate -context: SELinux is not enabled."));
+      die (EXIT_FAILURE, 0,
+	   _("invalid predicate -context: SELinux is not enabled."));
       return false;
     }
   our_pred = insert_primary (entry, NULL);
@@ -2714,110 +2635,172 @@ insert_type (char **argv, int *arg_ptr,
 	     const struct parser_table *entry,
 	     PRED_FUNC which_pred)
 {
-  mode_t type_cell;
   struct predicate *our_pred;
-  float rate = 0.5;
   const char *typeletter;
+  const char *pred_string = which_pred == pred_xtype ? "-xtype" : "-type";
 
-  if (collect_arg (argv, arg_ptr, &typeletter))
+  if (! collect_arg (argv, arg_ptr, &typeletter))
+    return false;
+
+  if (!*typeletter)
     {
-      if (strlen (typeletter) != 1u)
-	{
-	  error (EXIT_FAILURE, 0,
-		 _("Arguments to -type should contain only one letter"));
-	  /*NOTREACHED*/
-	  return false;
-	}
-
-      switch (typeletter[0])
-	{
-	case 'b':			/* block special */
-	  type_cell = S_IFBLK;
-	  rate = 0.01f;
-	  break;
-	case 'c':			/* character special */
-	  type_cell = S_IFCHR;
-	  rate = 0.01f;
-	  break;
-	case 'd':			/* directory */
-	  type_cell = S_IFDIR;
-	  rate = 0.4f;
-	  break;
-	case 'f':			/* regular file */
-	  type_cell = S_IFREG;
-	  rate = 0.95f;
-	  break;
-	case 'l':			/* symbolic link */
-#ifdef S_IFLNK
-	  type_cell = S_IFLNK;
-	  rate = 0.1f;
-#else
-	  error (EXIT_FAILURE, 0,
-		 _("-type %c is not supported because symbolic links "
-		   "are not supported on the platform find was compiled on."),
-		 (*typeletter));
-#endif
-	  break;
-	case 'p':			/* pipe */
-#ifdef S_IFIFO
-	  type_cell = S_IFIFO;
-	  rate = 0.01f;
-#else
-	  error (EXIT_FAILURE, 0,
-		 _("-type %c is not supported because FIFOs "
-		   "are not supported on the platform find was compiled on."),
-		 (*typeletter));
-#endif
-	  break;
-	case 's':			/* socket */
-#ifdef S_IFSOCK
-	  type_cell = S_IFSOCK;
-	  rate = 0.01f;
-#else
-	  error (EXIT_FAILURE, 0,
-		 _("-type %c is not supported because named sockets "
-		   "are not supported on the platform find was compiled on."),
-		 (*typeletter));
-#endif
-	  break;
-	case 'D':			/* Solaris door */
-#ifdef S_IFDOOR
-	  type_cell = S_IFDOOR;
-	  rate = 0.01f;
-#else
-	  error (EXIT_FAILURE, 0,
-		 _("-type %c is not supported because Solaris doors "
-		   "are not supported on the platform find was compiled on."),
-		 (*typeletter));
-#endif
-	  break;
-	default:			/* None of the above ... nuke 'em. */
-	  error (EXIT_FAILURE, 0,
-		 _("Unknown argument to -type: %c"), (*typeletter));
-	  /*NOTREACHED*/
-	  return false;
-	}
-      our_pred = insert_primary_withpred (entry, which_pred, typeletter);
-      our_pred->est_success_rate = rate;
-
-      /* Figure out if we will need to stat the file, because if we don't
-       * need to follow symlinks, we can avoid a stat call by using
-       * struct dirent.d_type.
-       */
-      if (which_pred == pred_xtype)
-	{
-	  our_pred->need_stat = true;
-	  our_pred->need_type = false;
-	}
-      else
-	{
-	  our_pred->need_stat = false; /* struct dirent is enough */
-	  our_pred->need_type = true;
-	}
-      our_pred->args.type = type_cell;
-      return true;
+      die (EXIT_FAILURE, 0,
+	   _("Arguments to %s should contain at least one letter"),
+	   pred_string);
+      /*NOTREACHED*/
+      return false;
     }
-  return false;
+
+  our_pred = insert_primary_withpred (entry, which_pred, typeletter);
+  our_pred->est_success_rate = 0.0;
+
+  /* Figure out if we will need to stat the file, because if we don't
+   * need to follow symlinks, we can avoid a stat call by using
+   * struct dirent.d_type.
+   */
+  if (which_pred == pred_xtype)
+    {
+      our_pred->need_stat = true;
+      our_pred->need_type = false;
+    }
+  else
+    {
+      our_pred->need_stat = false; /* struct dirent is enough */
+      our_pred->need_type = true;
+    }
+
+  /* From a real system here are the counts of files by type:
+     Type   Count  Fraction
+     f    4410884  0.875
+     d     464722  0.0922
+     l     156662  0.0311
+     b       4476  0.000888
+     c       2233  0.000443
+     s         80  1.59e-05
+     p         38  7.54e-06
+  */
+
+  for (; *typeletter; )
+    {
+      unsigned int type_cell;
+      float rate = 0.01;
+
+      switch (*typeletter)
+      {
+      case 'b':			/* block special */
+	type_cell = FTYPE_BLK;
+	rate = 0.000888f;
+	break;
+      case 'c':			/* character special */
+	type_cell = FTYPE_CHR;
+	rate = 0.000443f;
+	break;
+      case 'd':			/* directory */
+	type_cell = FTYPE_DIR;
+	rate = 0.0922f;
+	break;
+      case 'f':			/* regular file */
+	type_cell = FTYPE_REG;
+	rate = 0.875f;
+	break;
+      case 'l':			/* symbolic link */
+#ifdef S_IFLNK
+	type_cell = FTYPE_LNK;
+	rate = 0.0311f;
+#else
+	type_cell = 0;
+	die (EXIT_FAILURE, 0,
+	     _("%s %c is not supported because symbolic links "
+	       "are not supported on the platform find was compiled on."),
+	     pred_string, (*typeletter));
+#endif
+	break;
+      case 'p':			/* pipe */
+#ifdef S_IFIFO
+	type_cell = FTYPE_FIFO;
+	rate = 7.554e-6f;
+#else
+	type_cell = 0;
+	die (EXIT_FAILURE, 0,
+	     _("%s %c is not supported because FIFOs "
+	       "are not supported on the platform find was compiled on."),
+	     pred_string, (*typeletter));
+#endif
+	break;
+      case 's':			/* socket */
+#ifdef S_IFSOCK
+	type_cell = FTYPE_SOCK;
+	rate = 1.59e-5f;
+#else
+	type_cell = 0;
+	die (EXIT_FAILURE, 0,
+	     _("%s %c is not supported because named sockets "
+	       "are not supported on the platform find was compiled on."),
+	     pred_string, (*typeletter));
+#endif
+	break;
+      case 'D':			/* Solaris door */
+#ifdef S_IFDOOR
+	type_cell = FTYPE_DOOR;
+	/* There are no Solaris doors on the example system surveyed
+	 * above, but if someone uses -type D, they are presumably
+	 * expecting to find a non-zero number.  We guess at a
+	 * rate. */
+	rate = 1.0e-5f;
+#else
+	type_cell = 0;
+	die (EXIT_FAILURE, 0,
+	     _("%s %c is not supported because Solaris doors "
+	       "are not supported on the platform find was compiled on."),
+	     pred_string, (*typeletter));
+#endif
+	break;
+      default:			/* None of the above ... nuke 'em. */
+	type_cell = 0;
+	die (EXIT_FAILURE, 0,
+	     _("Unknown argument to %s: %c"), pred_string, (*typeletter));
+	/*NOTREACHED*/
+	return false;
+      }
+
+      if (our_pred->args.types[type_cell])
+	{
+	  die (EXIT_FAILURE, 0,
+	       _("Duplicate file type '%c' in the argument list to %s."),
+	       (*typeletter), pred_string);
+	}
+
+      our_pred->est_success_rate += rate;
+      our_pred->args.types[type_cell] = true;
+
+      /* Advance.
+       * Currently, only 1-character file types separated by ',' are supported.
+       */
+      typeletter++;
+      if (*typeletter)
+	{
+	  if (*typeletter != ',')
+	    {
+	      die (EXIT_FAILURE, 0,
+		   _("Must separate multiple arguments to %s using: ','"),
+		   pred_string);
+	      /*NOTREACHED*/
+	      return false;
+	    }
+	  typeletter++;
+	  if (!*typeletter)
+	    {
+	      die (EXIT_FAILURE, 0,
+		   _("Last file type in list argument to %s "
+		     "is missing, i.e., list is ending on: ','"),
+		   pred_string);
+	      /*NOTREACHED*/
+	      return false;
+	    }
+	}
+    }
+
+  return true;
 }
 
 
@@ -2866,25 +2849,25 @@ check_path_safety (const char *action)
       if (0 == len || (1 == len && path[pos] == '.'))
 	{
 	  /* empty field signifies . */
-	  error (EXIT_FAILURE, 0,
-		 _("The current directory is included in the PATH "
-		   "environment variable, which is insecure in "
-		   "combination with the %s action of find.  "
-		   "Please remove the current directory from your "
-		   "$PATH (that is, remove \".\", doubled colons, "
-		   "or leading or trailing colons)"),
-		 action);
+	  die (EXIT_FAILURE, 0,
+	       _("The current directory is included in the PATH "
+		 "environment variable, which is insecure in "
+		 "combination with the %s action of find.  "
+		 "Please remove the current directory from your "
+		 "$PATH (that is, remove \".\", doubled colons, "
+		 "or leading or trailing colons)"),
+	       action);
 	}
       else if (path[pos] != '/')
 	{
 	  char *relpath = strndup (&path[pos], len);
-	  error (EXIT_FAILURE, 0,
-		 _("The relative path %s is included in the PATH "
-		   "environment variable, which is insecure in "
-		   "combination with the %s action of find.  "
-		   "Please remove that entry from $PATH"),
-		 safely_quote_err_filename (0, relpath ? relpath : &path[pos]),
-		 action);
+	  die (EXIT_FAILURE, 0,
+	       _("The relative path %s is included in the PATH "
+		 "environment variable, which is insecure in "
+		 "combination with the %s action of find.  "
+		 "Please remove that entry from $PATH"),
+	       safely_quote_err_filename (0, relpath ? relpath : &path[pos]),
+	       action);
 	  /*NOTREACHED*/
 	  free (relpath);
 	}
@@ -2987,10 +2970,10 @@ insert_exec_ok (const char *action,
 	       * allowed.  We can specify this as those options are
 	       * not defined by POSIX.
 	       */
-	      error (EXIT_FAILURE, 0,
-		     _("You may not use {} within the utility name for "
-		       "-execdir and -okdir, because this is a potential "
-		       "security problem."));
+	      die (EXIT_FAILURE, 0,
+		   _("You may not use {} within the utility name for "
+		     "-execdir and -okdir, because this is a potential "
+		     "security problem."));
 	    }
 	}
     }
@@ -3013,9 +2996,9 @@ insert_exec_ok (const char *action,
 
       if (brace_count > 1)
 	{
-	  error (EXIT_FAILURE, 0,
-		 _("Only one instance of {} is supported with -exec%s ... +"),
-		 suffix);
+	  die (EXIT_FAILURE, 0,
+	       _("Only one instance of {} is supported with -exec%s ... +"),
+	       suffix);
 	}
       else if (strlen (brace_arg) != 2u)
 	{
@@ -3023,11 +3006,11 @@ insert_exec_ok (const char *action,
 	  char buf[MsgBufSize];
 	  const size_t needed = snprintf (buf, MsgBufSize, "-exec%s ... {} +", suffix);
 	  assert (needed <= MsgBufSize);  /* If this assertion fails, correct the value of MsgBufSize. */
-	  error (EXIT_FAILURE, 0,
-		 _("In %s the %s must appear by itself, but you specified %s"),
-		 quotearg_n_style (0, options.err_quoting_style, buf),
-		 quotearg_n_style (1, options.err_quoting_style, "{}"),
-		 quotearg_n_style (2, options.err_quoting_style, brace_arg));
+	  die (EXIT_FAILURE, 0,
+	       _("In %s the %s must appear by itself, but you specified %s"),
+	       quotearg_n_style (0, options.err_quoting_style, buf),
+	       quotearg_n_style (1, options.err_quoting_style, "{}"),
+	       quotearg_n_style (2, options.err_quoting_style, brace_arg));
 	}
     }
 
@@ -3043,8 +3026,7 @@ insert_exec_ok (const char *action,
     {
     case BC_INIT_ENV_TOO_BIG:
     case BC_INIT_CANNOT_ACCOMODATE_HEADROOM:
-      error (EXIT_FAILURE, 0,
-	     _("The environment is too large for exec()."));
+      die (EXIT_FAILURE, 0, _("The environment is too large for exec()."));
       break;
     case BC_INIT_OK:
       /* Good news.  Carry on. */
@@ -3170,7 +3152,7 @@ get_relative_timestamp (const char *str,
 	  if ((origin.tv_sec < result->ts.tv_sec) != (seconds < 0))
 	    {
 	      /* an overflow has occurred. */
-	      error (EXIT_FAILURE, 0, overflowmessage, str);
+	      die (EXIT_FAILURE, 0, overflowmessage, str);
 	    }
 
 	  result->ts.tv_nsec = origin.tv_nsec - nanosec;
@@ -3234,10 +3216,10 @@ parse_time (const struct parser_table* entry, char *argv[], int *arg_ptr)
 	{
 	  uintmax_t expected = origin.tv_sec + (DAYSECS-1);
 	  origin.tv_sec += (DAYSECS-1);
-	  if (origin.tv_sec != expected)
+	  if (expected != (uintmax_t)origin.tv_sec)
 	    {
-	      error (EXIT_FAILURE, 0,
-		     _("arithmetic overflow when trying to calculate the end of today"));
+	      die (EXIT_FAILURE, 0,
+		   _("arithmetic overflow when trying to calculate the end of today"));
 	    }
 	}
     }
@@ -3269,13 +3251,13 @@ parse_time (const struct parser_table* entry, char *argv[], int *arg_ptr)
 	       (tval.kind == COMP_GT) ? " >" :
 	       ((tval.kind == COMP_LT) ? " <" : ((tval.kind == COMP_EQ) ? ">=" : " ?")));
       t = our_pred->args.reftime.ts.tv_sec;
-      fprintf (stderr, "%ju %s",
+      fprintf (stderr, "%"PRIuMAX" %s",
 	       (uintmax_t) our_pred->args.reftime.ts.tv_sec,
 	       ctime (&t));
       if (tval.kind == COMP_EQ)
 	{
 	  t = our_pred->args.reftime.ts.tv_sec + DAYSECS;
-	  fprintf (stderr, "                 <  %ju %s",
+	  fprintf (stderr, "                 <  %"PRIuMAX" %s",
 		   (uintmax_t) t, ctime (&t));
 	}
     }
@@ -3379,7 +3361,7 @@ insert_num (char **argv, int *arg_ptr, const struct parser_table *entry)
 		     ((c_type == COMP_LT) ? "lt" : ((c_type == COMP_EQ) ? "eq" : "?")),
 		     (c_type == COMP_GT) ? " >" :
 		     ((c_type == COMP_LT) ? " <" : ((c_type == COMP_EQ) ? " =" : " ?")));
-	    fprintf (stderr, "%ju\n", our_pred->args.numinfo.l_val);
+	    fprintf (stderr, "%"PRIuMAX"\n", our_pred->args.numinfo.l_val);
 	  }
 	return our_pred;
       }

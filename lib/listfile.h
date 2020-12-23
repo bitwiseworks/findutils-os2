@@ -1,6 +1,5 @@
 /* listfile.h -- display a long listing of a file
-   Copyright (C) 1991, 1993, 2000, 2008, 2010, 2011 Free Software
-   Foundation, Inc.
+   Copyright (C) 1991-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,11 +12,11 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 
 #if !defined LISTFILE_H
 # define LISTFILE_H
-void list_file (const char *name, int dir_fd, char *relname, const struct stat *statp, time_t current_time, int output_block_size, int literal_control_chars, FILE *stream);
+void list_file (const char *name, int dir_fd, const char *relname, const struct stat *statp, time_t current_time, int output_block_size, int literal_control_chars, FILE *stream);
 #endif

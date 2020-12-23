@@ -1,6 +1,5 @@
 /* listfile.c -- display a long listing of a file
-   Copyright (C) 1991, 1993, 2000, 2004, 2005, 2007, 2008, 2010, 2011
-   Free Software Foundation, Inc.
+   Copyright (C) 1991-2019 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 /* config.h must be included first. */
 #include <config.h>
@@ -23,7 +22,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
-#include <locale.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,42 +40,26 @@
 #include "idcache.h"
 #include "pathmax.h"
 #include "stat-size.h"
-#include "gettext.h"
 
 /* find headers. */
+#include "system.h"
+#include "die.h"
 #include "listfile.h"
 
 /* Since major is a function on SVR4, we can't use `ifndef major'.  */
 #ifdef MAJOR_IN_MKDEV
-#include <sys/mkdev.h>
-#define HAVE_MAJOR
-#endif
-#ifdef MAJOR_IN_SYSMACROS
-#include <sys/sysmacros.h>
-#define HAVE_MAJOR
+# include <sys/mkdev.h>
+#else
+# ifdef MAJOR_IN_SYSMACROS
+#  include <sys/sysmacros.h>
+# else
+#  ifndef major                    /* Might be defined in sys/types.h.  */
+#   define major(dev)  (((dev) >> 8) & 0xff)
+#   define minor(dev)  ((dev) & 0xff)
+#  endif
+# endif
 #endif
 
-#ifdef major                    /* Might be defined in sys/types.h.  */
-#define HAVE_MAJOR
-#endif
-#ifndef HAVE_MAJOR
-#define major(dev)  (((dev) >> 8) & 0xff)
-#define minor(dev)  ((dev) & 0xff)
-#endif
-#undef HAVE_MAJOR
-
-#if ENABLE_NLS
-# include <libintl.h>
-# define _(Text) gettext (Text)
-#else
-# define _(Text) Text
-#endif
-#ifdef gettext_noop
-# define N_(String) gettext_noop (String)
-#else
-/* See locate.c for explanation as to why not use (String) */
-# define N_(String) String
-#endif
 
 static bool print_name (register const char *p, FILE *stream, int literal_control_chars);
 
@@ -117,7 +99,7 @@ static bool print_num(FILE *stream, unsigned long num, int *width)
 void
 list_file (const char *name,
            int dir_fd,
-           char *relname,
+           const char *relname,
            const struct stat *statp,
            time_t current_time,
            int output_block_size,
@@ -132,7 +114,6 @@ list_file (const char *name,
   bool output_good = true;
   int chars_out;
   int failed_at = 000;
-  int inode_field_width;
 
 #if HAVE_ST_DM_MODE
   /* Cray DMF: look at the file's migrated, not real, status */
@@ -185,13 +166,35 @@ list_file (const char *name,
           output_good = false;
           failed_at = 250;
         }
+    }
+  if (output_good)
+    {
       /* modebuf includes the space between the mode and the number of links,
          as the POSIX "optional alternate access method flag".  */
-      if (fprintf (stream, "%s%3lu ", modebuf, (unsigned long) statp->st_nlink) < 0)
+      if (fputs (modebuf, stream) < 0)
+        {
+          output_good = false;
+          failed_at = 275;
+        }
+    }
+  if (output_good)
+    {
+      /* This format used to end in a space, but the output of "ls"
+         has only one space between the link count and the owner name,
+         so we removed the trailing space.  Happily this also makes it
+         easier to update nlink_width. */
+      chars_out =  fprintf (stream, "%*lu",
+			    nlink_width, (unsigned long) statp->st_nlink);
+      if (chars_out < 0)
         {
           output_good = false;
           failed_at = 300;
         }
+      else
+	{
+	  if (chars_out > nlink_width)
+	    nlink_width = chars_out;
+	}
     }
 
   if (output_good)
@@ -448,7 +451,7 @@ list_file (const char *name,
     }
   if (!output_good)
     {
-      error (EXIT_FAILURE, errno, _("Failed to write output (at stage %d)"), failed_at);
+      die (EXIT_FAILURE, errno, _("Failed to write output (at stage %d)"), failed_at);
     }
 }
 
