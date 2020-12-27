@@ -73,7 +73,10 @@ fdopendir (int fd)
 
   /* Get a path from fd */
   if (__libc_Back_ioFHToPath (fd, path, sizeof (path)))
+  {
+    errno = EBADF;
     return NULL;
+  }
 
   dirp = opendir (path);
   if (!dirp)
