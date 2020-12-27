@@ -54,7 +54,11 @@ main (int argc, char *argv[])
   if (pass == 2)
     {
       const char *codeset = nl_langinfo (CODESET);
+#ifdef __OS2__
+      ASSERT (c_strcasecmp (codeset, "IBM-1208") == 0 || c_strcasecmp (codeset, "UTF-8") == 0 || c_strcasecmp (codeset, "UTF8") == 0);
+#else
       ASSERT (c_strcasecmp (codeset, "UTF-8") == 0 || c_strcasecmp (codeset, "UTF8") == 0);
+#endif
     }
   /* nl_langinfo items of the LC_NUMERIC category */
   ASSERT (strlen (nl_langinfo (RADIXCHAR)) > 0);
