@@ -27,6 +27,7 @@ esac
 tr -d '\015' < err \
   | sed 's,.*test-xalloc-die[.ex]*:,test-xalloc-die:,' > err2 || Exit 1
 
+dos2unix err2
 compare - err2 <<\EOF || Exit 1
 test-xalloc-die: memory exhausted
 EOF

@@ -11,12 +11,14 @@ grep -v '^EDC' t-perror.tmp | grep '[0-9]' > /dev/null \
 
 # Test empty prefix. Result should be the same.
 ${CHECKER} test-perror '' 2>&1 >/dev/null | LC_ALL=C tr -d '\r' > t-perror1.tmp
+dos2unix t-perror.tmp t-perror1.tmp
 diff t-perror.tmp t-perror1.tmp \
   || fail_ "empty prefix should behave like NULL argument"
 
 # Test non-empty prefix.
 ${CHECKER} test-perror foo 2>&1 >/dev/null | LC_ALL=C tr -d '\r' > t-perror3.tmp
 sed -e 's/^/foo: /' < t-perror.tmp > t-perror2.tmp
+dos2unix t-perror2.tmp t-perror3.tmp
 diff t-perror2.tmp t-perror3.tmp || fail_ "prefix applied incorrectly"
 
 # Test exit status.

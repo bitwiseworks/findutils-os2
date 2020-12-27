@@ -46,6 +46,7 @@ diff -u /dev/null in
 +++ in	1970-01-01
 +xyz
 EOF
+  dos2unix exp out
   compare exp out || fail=1
   case $- in *x*) ;; *) test -s err && fail_ "err not empty: $(cat err)";; esac
 
@@ -64,6 +65,7 @@ EOF
 +++ in
 +xyz
 EOF
+    dos2unix exp out
     compare exp out || fail=1
   fi
   case $- in *x*) ;; *) test -s err && fail_ "err not empty: $(cat err)";; esac
