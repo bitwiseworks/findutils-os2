@@ -460,7 +460,9 @@ test_function (select_fn my_select)
   result += test (test_connect_first, my_select, "Unconnected socket test");
   result += test (test_socket_pair, my_select, "Connected sockets test");
   result += test (test_accept_first, my_select, "General socket test with fork");
+#ifndef __OS2__
   result += test (test_pipe, my_select, "Pipe test");
+#endif
 
   return result;
 }
