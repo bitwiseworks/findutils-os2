@@ -28,7 +28,7 @@
 
 #include "macros.h"
 
-#if USE_POSIX_THREADS
+#if USE_POSIX_THREADS && !defined(__OS2__)
 
 static gl_thread_t main_thread;
 static gl_thread_t killer_thread;
