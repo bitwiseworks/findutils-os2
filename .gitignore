@@ -10,7 +10,7 @@ build-aux/depcomp
 build-aux/install-sh
 build-aux/mdate-sh
 build-aux/texinfo.tex
-config.h.in
+config.h.in*
 configure
 doc/Makefile.in
 find/Makefile.in
@@ -26,6 +26,7 @@ gl/m4/intmax.m4
 gl/m4/printf-posix.m4
 gl/m4/uintmax_t.m4
 gl/m4/visibility.m4
+gnulib-tests/Makefile.in
 lib/Makefile.in
 locate/Makefile.in
 locate/testsuite/Makefile.in
@@ -34,3 +35,4 @@ po/Makefile.in.in
 po/Makevars.template
 xargs/Makefile.in
 xargs/testsuite/Makefile.in
+Makefile.in
