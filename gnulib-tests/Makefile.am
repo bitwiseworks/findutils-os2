@@ -26,7 +26,7 @@ AUTOMAKE_OPTIONS = 1.11 foreign subdir-objects
 
 SUBDIRS = .
 TESTS =
-XFAIL_TESTS =
+#XFAIL_TESTS =
 TESTS_ENVIRONMENT =
 noinst_PROGRAMS =
 check_PROGRAMS =
