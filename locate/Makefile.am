@@ -69,7 +69,7 @@ install-data-hook:
 	$(top_srcdir)/build-aux/mkinstalldirs $(DESTDIR)$(localstatedir)
 
 dblocation.texi:
-	echo '@set LOCATE_DB $(LOCATE_DB)' > $@.tmp
+	echo '@set LOCATE_DB $(LOCATE_DB)' | sed 's/@unixroot/@@unixroot/' > $@.tmp
 	if test -f $@ && cmp $@.tmp $@ >/dev/null ; then \
 	    rm $@.tmp ; \
 	else \
