@@ -60,6 +60,7 @@ TESTS_ENVIRONMENT =				\
   AWK='$(AWK)'					\
   EGREP='$(EGREP)'				\
   EXEEXT='$(EXEEXT)'				\
+  PATH_SEPARATOR="$(PATH_SEPARATOR)"		\
   MAKE=$(MAKE)					\
   PACKAGE_VERSION=$(PACKAGE_VERSION)		\
   PERL='$(PERL)'				\

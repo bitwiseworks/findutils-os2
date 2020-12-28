@@ -16,7 +16,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 AUTOMAKE_OPTIONS = gnu std-options readme-alpha
-
+PATH_SEPARATOR='@PATH_SEPARATOR@'
 AM_CFLAGS = $(WARN_CFLAGS)
 
 EXTRA_DIST = \
