@@ -67,7 +67,6 @@ ME_=`expr "./$0" : '.*/\(.*\)$'`
 
 # Prepare PATH_SEPARATOR.
 # The user is always right.
-PATH_SEPARATOR=";"
 if test "${PATH_SEPARATOR+set}" != set; then
   # Determine PATH_SEPARATOR by trying to find /bin/sh in a PATH which
   # contains only /bin. Note that ksh looks also at the FPATH variable,
